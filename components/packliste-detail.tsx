@@ -624,22 +624,30 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
   return (
     <div className="container mx-auto space-y-6">
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2">
+      {/* Mobile-responsive navbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2 w-fit">
           <ArrowLeft className="h-4 w-4" />
-          Zurück zur Event-Auswahl
+          <span className="hidden sm:inline">Zurück zur Event-Auswahl</span>
+          <span className="sm:hidden">Zurück</span>
         </Button>
-        <h1 className="text-2xl font-bold">Packliste: {event.name}</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2">
+
+        <h1 className="text-xl sm:text-2xl font-bold text-center sm:text-left order-first sm:order-none">
+          Packliste: {event.name}
+        </h1>
+
+        <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2 text-sm">
             <FileDown className="h-4 w-4" />
-            PDF Export
+            <span className="hidden sm:inline">PDF Export</span>
+            <span className="sm:hidden">PDF</span>
           </Button>
-          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2 text-sm">
             <Edit className="h-4 w-4" />
-            Bearbeiten
+            <span className="hidden sm:inline">Bearbeiten</span>
+            <span className="sm:hidden">Edit</span>
           </Button>
-          <Button onClick={handleSave} className="flex items-center gap-2">
+          <Button onClick={handleSave} className="flex items-center gap-2 text-sm">
             <Save className="h-4 w-4" />
             Speichern
           </Button>
