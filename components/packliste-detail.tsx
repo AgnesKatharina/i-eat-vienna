@@ -69,6 +69,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const [products, setProducts] = useState<ProductWithCategory[]>([])
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editDate, setEditDate] = useState<Date | undefined>(undefined)
+  const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined)
   const [productQuantities, setProductQuantities] = useState<Record<string, number>>({})
   const [recipes, setRecipes] = useState<Record<string, Record<string, { menge: number; einheit: string }>>>({})
   const [packagingUnits, setPackagingUnits] = useState<
@@ -100,6 +101,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             supplierName: "",
           })
           setEditDate(eventData.date ? new Date(eventData.date) : undefined)
+          setEditEndDate(eventData.end_date ? new Date(eventData.end_date) : undefined)
         }
 
         setCategories(categoriesData)
@@ -445,6 +447,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         name: event.name,
         type: event.type,
         date: editDate ? editDate.toISOString() : null,
+        end_date: editEndDate ? editEndDate.toISOString() : null,
         ft: event.ft,
         ka: event.ka,
       })
@@ -624,30 +627,22 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
   return (
     <div className="container mx-auto space-y-6">
-      {/* Mobile-responsive navbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2 w-fit">
+      <div className="flex items-center justify-between mb-6">
+        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2">
           <ArrowLeft className="h-4 w-4" />
-          <span className="hidden sm:inline">Zurück zur Event-Auswahl</span>
-          <span className="sm:hidden">Zurück</span>
+          Zurück zur Event-Auswahl
         </Button>
-
-        <h1 className="text-xl sm:text-2xl font-bold text-center sm:text-left order-first sm:order-none">
-          Packliste: {event.name}
-        </h1>
-
-        <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
-          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2 text-sm">
+        <h1 className="text-2xl font-bold">Packliste: {event.name}</h1>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2">
             <FileDown className="h-4 w-4" />
-            <span className="hidden sm:inline">PDF Export</span>
-            <span className="sm:hidden">PDF</span>
+            PDF Export
           </Button>
-          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2 text-sm">
+          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2">
             <Edit className="h-4 w-4" />
-            <span className="hidden sm:inline">Bearbeiten</span>
-            <span className="sm:hidden">Edit</span>
+            Bearbeiten
           </Button>
-          <Button onClick={handleSave} className="flex items-center gap-2 text-sm">
+          <Button onClick={handleSave} className="flex items-center gap-2">
             <Save className="h-4 w-4" />
             Speichern
           </Button>
@@ -666,7 +661,13 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <div>
               <p className="text-sm text-gray-500">Datum</p>
               <p className="font-medium">
-                {event.date ? new Date(event.date).toLocaleDateString("de-DE") : "Kein Datum"}
+                {event.date
+                  ? event.end_date && event.date !== event.end_date
+                    ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
+                        event.end_date,
+                      ).toLocaleDateString("de-DE")}`
+                    : new Date(event.date).toLocaleDateString("de-DE")
+                  : "Kein Datum"}
               </p>
             </div>
             {event.ft && (
@@ -1076,6 +1077,28 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 )}
               </div>
             </div>
+            <div className="space-y-2">
+              <Label>Enddatum</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={editEndDate ? format(editEndDate, "yyyy-MM-dd") : ""}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setEditEndDate(new Date(e.target.value))
+                    } else {
+                      setEditEndDate(undefined)
+                    }
+                  }}
+                  className="flex-1"
+                />
+                {editEndDate && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditEndDate(undefined)}>
+                    Entfernen
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
@@ -1140,10 +1163,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
       {/* Print Preview Dialog */}
       <Dialog open={isPrintPreviewOpen} onOpenChange={setIsPrintPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] p-0">
+        <DialogContent className="max-w-5xl max-h-[85vh] p-0">
           <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 pr-12 border-b bg-gray-50">
+            {/* Fixed Header */}
+            <div className="flex items-center justify-between p-4 border-b bg-gray-50 flex-shrink-0">
               <div>
                 <DialogTitle className="text-lg font-semibold">Druckvorschau</DialogTitle>
                 <DialogDescription className="text-sm text-gray-600">
@@ -1161,144 +1184,313 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               </div>
             </div>
 
-            {/* Preview Content */}
-            <div className="flex-1 overflow-auto p-6 bg-gray-100">
-              <div className="max-w-3xl mx-auto bg-white shadow-lg" style={{ aspectRatio: "297/210" }}>
-                {/* PDF Content Preview */}
-                <div className="p-8 h-full flex flex-col">
-                  {/* Header */}
-                  <div className="border-b pb-2 mb-4">
-                    <div className="text-xs text-gray-500 mb-1">
-                      {event?.type} | {event?.name} |{" "}
-                      {event?.date ? new Date(event.date).toLocaleDateString("de-DE") : "Kein Datum"}
-                      {event?.ft && ` | ${event.ft}`}
-                      {event?.ka && ` | ${event.ka}`}
-                    </div>
-                  </div>
+            {/* Scrollable Content Area */}
+            <div className="flex-1 overflow-y-auto bg-gray-400 p-8" style={{ maxHeight: "calc(85vh - 80px)" }}>
+              <div className="space-y-8">
+                {(() => {
+                  const pages = []
 
-                  {/* Title */}
-                  <div className="mb-6">
-                    <h1 className="text-lg font-bold">
-                      Packliste: {event?.name} |{" "}
-                      {event?.date ? new Date(event.date).toLocaleDateString("de-DE") : "Kein Datum"}
-                      {event?.ft && ` | ${event.ft}`}
-                      {event?.ka && ` | ${event.ka}`}
-                    </h1>
-                    <div className="border-b mt-2"></div>
-                  </div>
+                  // Calculate products per page (similar to PDF logic)
+                  const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> = {}
 
-                  {/* Products by Category */}
-                  <div className="flex-1 grid grid-cols-6 gap-4 text-xs">
-                    {packlisteCategories.map((category) => {
-                      const categoryProducts = Object.entries(selectedProducts)
-                        .filter(([productName]) => productCategories[productName] === category)
-                        .sort(([a], [b]) => a.localeCompare(b))
+                  Object.entries(selectedProducts).forEach(([productName, details]) => {
+                    const category = productCategories[productName] || "Sonstige"
+                    if (!productsByCategory[category]) {
+                      productsByCategory[category] = []
+                    }
+                    productsByCategory[category].push({
+                      name: productName,
+                      quantity: details.quantity,
+                      unit: details.unit,
+                    })
+                  })
 
-                      return (
-                        <div key={category} className="space-y-1">
-                          <h3 className="font-bold text-sm border-b pb-1">{category}</h3>
-                          {categoryProducts.map(([productName, details]) => (
-                            <div key={productName} className="flex items-start gap-1">
-                              <div className="w-2 h-2 border border-gray-400 mt-0.5 flex-shrink-0"></div>
-                              <span className="text-xs leading-tight">
-                                {details.quantity}x {productName}
-                              </span>
-                            </div>
-                          ))}
+                  const sortedCategories = packlisteCategories.filter((cat) => productsByCategory[cat]?.length > 0)
+                  const maxProductsInCategory = Math.max(
+                    ...sortedCategories.map((cat) => productsByCategory[cat].length),
+                    0,
+                  )
+
+                  // Calculate how many product pages we need (approximately 25 rows per page)
+                  const rowsPerPage = 25
+                  const productPages = Math.max(1, Math.ceil(maxProductsInCategory / rowsPerPage))
+
+                  // Generate product pages
+                  for (let pageNum = 1; pageNum <= productPages; pageNum++) {
+                    const startRow = (pageNum - 1) * rowsPerPage
+                    const endRow = pageNum * rowsPerPage
+
+                    pages.push(
+                      <div key={`product-page-${pageNum}`} className="flex flex-col items-center">
+                        <div className="mb-3 text-sm font-medium text-gray-700 bg-white px-3 py-1 rounded shadow">
+                          Seite {pageNum} - Packliste
                         </div>
+                        <div
+                          className="bg-white shadow-xl border border-gray-500 mx-auto"
+                          style={{ width: "794px", height: "562px" }}
+                        >
+                          <div className="w-full h-full p-6 flex flex-col font-sans">
+                            {/* Header */}
+                            <div className="border-b border-gray-400 pb-1 mb-3">
+                              <div className="text-xs text-gray-600 font-medium">
+                                {event?.type} | {event?.name} |{" "}
+                                {event?.date
+                                  ? event?.end_date && event.date !== event.end_date
+                                    ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
+                                        event.end_date,
+                                      ).toLocaleDateString("de-DE")}`
+                                    : new Date(event.date).toLocaleDateString("de-DE")
+                                  : "Kein Datum"}
+                                {event?.ft && ` | ${event.ft}`}
+                                {event?.ka && ` | ${event.ka}`}
+                              </div>
+                            </div>
+
+                            {/* Title */}
+                            <div className="mb-4">
+                              <h1 className="text-base font-bold text-black leading-tight">
+                                Packliste: {event?.name} |{" "}
+                                {event?.date
+                                  ? event?.end_date && event.date !== event.end_date
+                                    ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
+                                        event.end_date,
+                                      ).toLocaleDateString("de-DE")}`
+                                    : new Date(event.date).toLocaleDateString("de-DE")
+                                  : "Kein Datum"}
+                                {event?.ft && ` | ${event.ft}`}
+                                {event?.ka && ` | ${event.ka}`}
+                              </h1>
+                              <div className="border-b-2 border-black mt-1"></div>
+                            </div>
+
+                            {/* Products Grid - 6 columns */}
+                            <div className="flex-1 grid grid-cols-6 gap-3 text-xs">
+                              {sortedCategories.map((category) => {
+                                const categoryProducts = productsByCategory[category]
+                                  .sort((a, b) => a.name.localeCompare(b.name))
+                                  .slice(startRow, endRow)
+
+                                return (
+                                  <div key={category} className="flex flex-col">
+                                    {/* Category header only on first page */}
+                                    {pageNum === 1 && (
+                                      <>
+                                        <h3 className="font-bold text-xs border-b border-black pb-1 mb-2">
+                                          {category}
+                                        </h3>
+                                      </>
+                                    )}
+                                    {/* Category header on subsequent pages */}
+                                    {pageNum > 1 && categoryProducts.length > 0 && (
+                                      <>
+                                        <h3 className="font-bold text-xs border-b border-black pb-1 mb-2">
+                                          {category} (Forts.)
+                                        </h3>
+                                      </>
+                                    )}
+                                    <div className="space-y-1">
+                                      {categoryProducts.map((product, index) => (
+                                        <div key={`${product.name}-${index}`} className="flex items-start gap-1">
+                                          <div className="w-2 h-2 border border-black mt-0.5 flex-shrink-0"></div>
+                                          <span className="text-xs leading-tight break-words">
+                                            {product.quantity}x {product.name}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+
+                            {/* Signature Box - only on last product page */}
+                            {pageNum === productPages && (
+                              <div className="mt-4">
+                                <div className="border-2 border-black p-2">
+                                  <div className="text-xs">
+                                    <strong>Erledigt von:</strong> ______________________{" "}
+                                    <strong>Datum & Uhrzeit:</strong> _____________________
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Footer */}
+                            <div className="border-t border-gray-400 pt-1 mt-2">
+                              <div className="text-xs text-gray-600 flex justify-between">
+                                <span>
+                                  {event?.type} | {event?.name} |{" "}
+                                  {event?.date
+                                    ? event?.end_date && event.date !== event.end_date
+                                      ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
+                                          event.end_date,
+                                        ).toLocaleDateString("de-DE")}`
+                                      : new Date(event.date).toLocaleDateString("de-DE")
+                                    : "Kein Datum"}
+                                  {event?.ft && ` | ${event.ft}`}
+                                  {event?.ka && ` | ${event.ka}`}
+                                </span>
+                                <span className="font-bold">Seite {pageNum}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>,
+                    )
+                  }
+
+                  // Add ingredients pages if there are ingredients
+                  if (Object.keys(calculatedIngredients).length > 0) {
+                    const sortedIngredients = Object.entries(calculatedIngredients).sort(([a], [b]) =>
+                      a.localeCompare(b),
+                    )
+                    const ingredientsPerPage = 30
+                    const ingredientPages = Math.ceil(sortedIngredients.length / ingredientsPerPage)
+
+                    for (let pageNum = 1; pageNum <= ingredientPages; pageNum++) {
+                      const startIndex = (pageNum - 1) * ingredientsPerPage
+                      const endIndex = pageNum * ingredientsPerPage
+                      const pageIngredients = sortedIngredients.slice(startIndex, endIndex)
+                      const actualPageNum = productPages + pageNum
+
+                      pages.push(
+                        <div key={`ingredient-page-${pageNum}`} className="flex flex-col items-center">
+                          <div className="mb-3 text-sm font-medium text-gray-700 bg-white px-3 py-1 rounded shadow">
+                            Seite {actualPageNum} - Zutaten{" "}
+                            {ingredientPages > 1 ? `(${pageNum}/${ingredientPages})` : ""}
+                          </div>
+                          <div
+                            className="bg-white shadow-xl border border-gray-500 mx-auto"
+                            style={{ width: "794px", height: "562px" }}
+                          >
+                            <div className="w-full h-full p-6 flex flex-col font-sans">
+                              {/* Header */}
+                              <div className="border-b border-gray-400 pb-1 mb-3">
+                                <div className="text-xs text-gray-600 font-medium">
+                                  {event?.type} | {event?.name} |{" "}
+                                  {event?.date
+                                    ? event?.end_date && event.date !== event.end_date
+                                      ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
+                                          event.end_date,
+                                        ).toLocaleDateString("de-DE")}`
+                                      : new Date(event.date).toLocaleDateString("de-DE")
+                                    : "Kein Datum"}
+                                  {event?.ft && ` | ${event.ft}`}
+                                  {event?.ka && ` | ${event.ka}`}
+                                </div>
+                              </div>
+
+                              {/* Title */}
+                              <div className="mb-4">
+                                <h1 className="text-base font-bold text-black">Zutaten</h1>
+                                <div className="border-b-2 border-black mt-1"></div>
+                              </div>
+
+                              {/* Ingredients List */}
+                              <div className="flex-1">
+                                <div className="space-y-1">
+                                  {pageIngredients.map(([ingredient, details]) => (
+                                    <div
+                                      key={ingredient}
+                                      className="flex items-start gap-3 text-xs py-1 border-b border-gray-200"
+                                    >
+                                      <div className="w-2 h-2 border border-black mt-1 flex-shrink-0"></div>
+                                      <div className="flex-1 min-w-0">
+                                        <span className="font-medium">{ingredient}</span>
+                                      </div>
+                                      <div className="w-40 text-right text-xs">
+                                        {details.packagingCount}{" "}
+                                        {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
+                                        {formatWeight(details.amountPerPackage, details.unit)}
+                                      </div>
+                                      <div className="w-20 text-right font-bold text-xs">
+                                        {formatWeight(details.totalAmount, details.unit)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Signature Box - only on last ingredients page */}
+                              {pageNum === ingredientPages && (
+                                <div className="mt-4">
+                                  <div className="border-2 border-black p-2">
+                                    <div className="text-xs">
+                                      <strong>Erledigt von:</strong> ______________________{" "}
+                                      <strong>Datum & Uhrzeit:</strong> _____________________
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Footer */}
+                              <div className="border-t border-gray-400 pt-1 mt-2">
+                                <div className="text-xs text-gray-600 flex justify-between">
+                                  <span>
+                                    {event?.type} | {event?.name} |{" "}
+                                    {event?.date
+                                      ? event?.end_date && event.date !== event.end_date
+                                        ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
+                                            event.end_date,
+                                          ).toLocaleDateString("de-DE")}`
+                                        : new Date(event.date).toLocaleDateString("de-DE")
+                                      : "Kein Datum"}
+                                    {event?.ft && ` | ${event.ft}`}
+                                    {event?.ka && ` | ${event.ka}`}
+                                  </span>
+                                  <span className="font-bold">Seite {actualPageNum}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>,
                       )
-                    })}
-                  </div>
+                    }
+                  }
 
-                  {/* Ingredients Section Preview */}
-                  {Object.keys(calculatedIngredients).length > 0 && (
-                    <div className="mt-6 pt-4 border-t">
-                      <h2 className="text-sm font-bold mb-2">Zutaten (Seite 2)</h2>
-                      <div className="text-xs text-gray-600">
-                        {Object.keys(calculatedIngredients).length} Zutaten berechnet
-                      </div>
-                    </div>
-                  )}
+                  return pages
+                })()}
 
-                  {/* Signature Box */}
-                  <div className="mt-auto pt-4">
-                    <div className="border border-gray-400 p-2 text-xs">
-                      Erledigt von: ______________________ Datum & Uhrzeit: _____________________
-                    </div>
-                  </div>
+                {/* Document Info */}
+                <div className="text-center py-6">
+                  <div className="inline-flex items-center gap-2 bg-white px-6 py-3 rounded-lg shadow-lg border">
+                    <span className="text-xl">📄</span>
+                    <span className="font-semibold text-gray-800">
+                      {(() => {
+                        const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> =
+                          {}
+                        Object.entries(selectedProducts).forEach(([productName, details]) => {
+                          const category = productCategories[productName] || "Sonstige"
+                          if (!productsByCategory[category]) {
+                            productsByCategory[category] = []
+                          }
+                          productsByCategory[category].push({
+                            name: productName,
+                            quantity: details.quantity,
+                            unit: details.unit,
+                          })
+                        })
 
-                  {/* Footer */}
-                  <div className="border-t pt-2 mt-2">
-                    <div className="text-xs text-gray-500 flex justify-between">
-                      <span>
-                        {event?.type} | {event?.name} |{" "}
-                        {event?.date ? new Date(event.date).toLocaleDateString("de-DE") : "Kein Datum"}
-                      </span>
-                      <span>Seite 1</span>
-                    </div>
+                        const sortedCategories = packlisteCategories.filter(
+                          (cat) => productsByCategory[cat]?.length > 0,
+                        )
+                        const maxProductsInCategory = Math.max(
+                          ...sortedCategories.map((cat) => productsByCategory[cat].length),
+                          0,
+                        )
+                        const productPages = Math.max(1, Math.ceil(maxProductsInCategory / 25))
+                        const ingredientPages =
+                          Object.keys(calculatedIngredients).length > 0
+                            ? Math.ceil(Object.keys(calculatedIngredients).length / 30)
+                            : 0
+                        const totalPages = productPages + ingredientPages
+
+                        return `${totalPages} ${totalPages === 1 ? "Seite" : "Seiten"}`
+                      })()}• A4 Querformat (297×210mm)
+                    </span>
                   </div>
                 </div>
               </div>
-
-              {/* Page 2 Preview (Ingredients) */}
-              {Object.keys(calculatedIngredients).length > 0 && (
-                <div className="max-w-3xl mx-auto bg-white shadow-lg mt-4" style={{ aspectRatio: "297/210" }}>
-                  <div className="p-8 h-full flex flex-col">
-                    {/* Header */}
-                    <div className="border-b pb-2 mb-4">
-                      <div className="text-xs text-gray-500 mb-1">
-                        {event?.type} | {event?.name} |{" "}
-                        {event?.date ? new Date(event.date).toLocaleDateString("de-DE") : "Kein Datum"}
-                        {event?.ft && ` | ${event.ft}`}
-                        {event?.ka && ` | ${event.ka}`}
-                      </div>
-                    </div>
-
-                    {/* Ingredients Title */}
-                    <div className="mb-6">
-                      <h1 className="text-lg font-bold">Zutaten</h1>
-                      <div className="border-b mt-2"></div>
-                    </div>
-
-                    {/* Ingredients List */}
-                    <div className="flex-1 space-y-2">
-                      {Object.entries(calculatedIngredients)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([ingredient, details]) => (
-                          <div key={ingredient} className="flex items-start gap-2 text-xs">
-                            <div className="w-2 h-2 border border-gray-400 mt-0.5 flex-shrink-0"></div>
-                            <div className="flex-1">{ingredient}</div>
-                            <div className="w-20 text-right">
-                              {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
-                              {formatWeight(details.amountPerPackage, details.unit)}
-                            </div>
-                            <div className="w-16 text-right font-medium">
-                              {formatWeight(details.totalAmount, details.unit)}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-
-                    {/* Signature Box */}
-                    <div className="mt-auto pt-4">
-                      <div className="border border-gray-400 p-2 text-xs">
-                        Erledigt von: ______________________ Datum & Uhrzeit: _____________________
-                      </div>
-                    </div>
-
-                    {/* Footer */}
-                    <div className="border-t pt-2 mt-2">
-                      <div className="text-xs text-gray-500 flex justify-between">
-                        <span>
-                          {event?.type} | {event?.name} |{" "}
-                          {event?.date ? new Date(event.date).toLocaleDateString("de-DE") : "Kein Datum"}
-                        </span>
-                        <span>Seite 2</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </DialogContent>
