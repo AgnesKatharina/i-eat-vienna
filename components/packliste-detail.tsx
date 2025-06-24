@@ -1,18 +1,20 @@
 "use client"
 
-import { DialogFooter } from "@/components/ui/dialog"
-
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Save, Edit, FileDown } from "lucide-react"
+import { ArrowLeft, Save, Edit, FileDown, Search } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search } from "lucide-react"
 import { format } from "date-fns"
 import { de } from "date-fns/locale"
 import { unitPlurals } from "@/lib/data"
@@ -22,6 +24,7 @@ import { generatePdf } from "@/lib/pdf-generator"
 import { PacklisteSkeleton } from "@/components/packliste-skeleton"
 import type { SelectedProduct, EventDetails, CalculatedIngredient, Event } from "@/lib/types"
 import type { ProductWithCategory } from "@/lib/supabase-service"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 
 interface PacklisteDetailProps {
   eventId: string
@@ -30,6 +33,9 @@ interface PacklisteDetailProps {
 export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const router = useRouter()
   const { toast } = useToast()
+  const supabase = createClientComponentClient()
+
+  // State variables
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedProducts, setSelectedProducts] = useState<Record<string, SelectedProduct>>({})
@@ -59,6 +65,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const [categoryToDelete, setCategoryToDelete] = useState<string>("")
   const [productCategories, setProductCategories] = useState<Record<string, string>>({})
   const [isPrintReady, setIsPrintReady] = useState(false)
+  const [isFinished, setIsFinished] = useState(false)
   const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false)
 
   // Define the correct order of categories for Packliste mode
@@ -77,6 +84,23 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   >({})
   const [searchTerm, setSearchTerm] = useState("")
 
+  // Update finished status function
+  const updateFinishedStatus = async (isFinished: boolean): Promise<boolean> => {
+    try {
+      const { error } = await supabase.from("events").update({ finished: isFinished }).eq("id", eventId)
+
+      if (error) {
+        console.error("Error updating finished status:", error)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error("Error updating finished status:", error)
+      return false
+    }
+  }
+
   // Load event data and categories/products from database
   useEffect(() => {
     async function loadData() {
@@ -92,6 +116,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         if (eventData) {
           setEvent(eventData)
           setIsPrintReady(eventData.print || false)
+          setIsFinished(eventData.finished || false)
           setEventDetails({
             type: eventData.type || "Catering",
             name: eventData.name || "",
@@ -141,11 +166,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
         setInitialSelectedProducts(productMap)
         setInitialEventDetails({
-          type: eventData.type || "Catering",
-          name: eventData.name || "",
-          ft: eventData.ft || "",
-          ka: eventData.ka || "",
-          date: eventData.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
+          type: eventData?.type || "Catering",
+          name: eventData?.name || "",
+          ft: eventData?.ft || "",
+          ka: eventData?.ka || "",
+          date: eventData?.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
           supplierName: "",
         })
       } catch (error) {
@@ -162,24 +187,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
     loadData()
   }, [eventId, toast])
-
-  useEffect(() => {
-    // Check if selected products have changed
-    const productsChanged = JSON.stringify(selectedProducts) !== JSON.stringify(initialSelectedProducts)
-
-    // Check if event details have changed
-    const currentEventDetails = {
-      type: event?.type || "Catering",
-      name: event?.name || "",
-      ft: event?.ft || "",
-      ka: event?.ka || "",
-      date: event?.date ? new Date(event.date).toISOString().split("T")[0] : "",
-      supplierName: eventDetails.supplierName,
-    }
-    const eventDetailsChanged = JSON.stringify(currentEventDetails) !== JSON.stringify(initialEventDetails)
-
-    setHasUnsavedChanges(productsChanged || eventDetailsChanged)
-  }, [selectedProducts, event, eventDetails, initialSelectedProducts, initialEventDetails])
 
   // Optimized function to load recipes and packaging in batches
   async function loadRecipesAndPackaging(productsData: ProductWithCategory[]) {
@@ -278,6 +285,96 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     setCalculatedIngredients(ingredients)
   }, [selectedProducts, recipes, packagingUnits])
 
+  // Check for unsaved changes
+  useEffect(() => {
+    // Check if selected products have changed
+    const productsChanged = JSON.stringify(selectedProducts) !== JSON.stringify(initialSelectedProducts)
+
+    // Check if event details have changed
+    const currentEventDetails = {
+      type: event?.type || "Catering",
+      name: event?.name || "",
+      ft: event?.ft || "",
+      ka: event?.ka || "",
+      date: event?.date ? new Date(event.date).toISOString().split("T")[0] : "",
+      supplierName: eventDetails.supplierName,
+    }
+    const eventDetailsChanged = JSON.stringify(currentEventDetails) !== JSON.stringify(initialEventDetails)
+
+    setHasUnsavedChanges(productsChanged || eventDetailsChanged)
+  }, [selectedProducts, event, eventDetails, initialSelectedProducts, initialEventDetails])
+
+  // Helper functions
+  const getUnitPlural = (quantity: number, unit: string): string => {
+    if (quantity > 1) {
+      return unitPlurals[unit] || unit
+    }
+    return unit
+  }
+
+  const formatWeight = (value: number, unit: string): string => {
+    if (unit.toLowerCase() === "gramm" && value >= 1000) {
+      return `${(value / 1000).toFixed(1)} Kg`
+    } else if (unit.toLowerCase() === "milliliter" && value >= 1000) {
+      return `${(value / 1000).toFixed(1)} L`
+    } else {
+      return `${value} ${unit}`
+    }
+  }
+
+  // Get the category icon
+  const getCategoryIcon = (categoryName: string) => {
+    switch (categoryName) {
+      case "Essen":
+        return "🍔"
+      case "Getränke Pet":
+        return "💧"
+      case "Getränke Glas":
+        return "🥛"
+      case "Getränke Spezial":
+        return "⭐"
+      case "Equipment":
+        return "🍳"
+      case "Kassa":
+        return "💰"
+      default:
+        return "📦"
+    }
+  }
+
+  // Get the category background color
+  const getCategoryBackgroundColor = (categoryName: string) => {
+    switch (categoryName) {
+      case "Essen":
+        return "bg-orange-50 border-orange-200 hover:bg-orange-100"
+      case "Getränke Pet":
+        return "bg-blue-50 border-blue-200 hover:bg-blue-100"
+      case "Getränke Glas":
+        return "bg-cyan-50 border-cyan-200 hover:bg-cyan-100"
+      case "Getränke Spezial":
+        return "bg-purple-50 border-purple-200 hover:bg-purple-100"
+      case "Equipment":
+        return "bg-green-50 border-green-200 hover:bg-green-100"
+      case "Kassa":
+        return "bg-yellow-50 border-yellow-200 hover:bg-yellow-100"
+      default:
+        return "bg-gray-50 border-gray-200 hover:bg-gray-100"
+    }
+  }
+
+  // Filter products by active category and search term
+  const filteredProducts = useCallback(() => {
+    let filtered = products.filter((product) => product.category?.name === activeCategory)
+
+    if (searchTerm) {
+      const lowerSearchTerm = searchTerm.toLowerCase()
+      filtered = filtered.filter((product) => product.name.toLowerCase().includes(lowerSearchTerm))
+    }
+
+    return filtered
+  }, [products, activeCategory, searchTerm])
+
+  // Event handlers
   const handleProductSelect = (
     productId: number,
     productName: string,
@@ -523,75 +620,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     }
   }
 
-  const getUnitPlural = (quantity: number, unit: string): string => {
-    if (quantity > 1) {
-      return unitPlurals[unit] || unit
-    }
-    return unit
-  }
-
-  const formatWeight = (value: number, unit: string): string => {
-    if (unit.toLowerCase() === "gramm" && value >= 1000) {
-      return `${(value / 1000).toFixed(1)} Kg`
-    } else if (unit.toLowerCase() === "milliliter" && value >= 1000) {
-      return `${(value / 1000).toFixed(1)} L`
-    } else {
-      return `${value} ${unit}`
-    }
-  }
-
-  // Get the category icon
-  const getCategoryIcon = (categoryName: string) => {
-    switch (categoryName) {
-      case "Essen":
-        return "🍔"
-      case "Getränke Pet":
-        return "💧"
-      case "Getränke Glas":
-        return "🥛"
-      case "Getränke Spezial":
-        return "⭐"
-      case "Equipment":
-        return "🍳"
-      case "Kassa":
-        return "💰"
-      default:
-        return "📦"
-    }
-  }
-
-  // Get the category background color
-  const getCategoryBackgroundColor = (categoryName: string) => {
-    switch (categoryName) {
-      case "Essen":
-        return "bg-orange-50 border-orange-200 hover:bg-orange-100"
-      case "Getränke Pet":
-        return "bg-blue-50 border-blue-200 hover:bg-blue-100"
-      case "Getränke Glas":
-        return "bg-cyan-50 border-cyan-200 hover:bg-cyan-100"
-      case "Getränke Spezial":
-        return "bg-purple-50 border-purple-200 hover:bg-purple-100"
-      case "Equipment":
-        return "bg-green-50 border-green-200 hover:bg-green-100"
-      case "Kassa":
-        return "bg-yellow-50 border-yellow-200 hover:bg-yellow-100"
-      default:
-        return "bg-gray-50 border-gray-200 hover:bg-gray-100"
-    }
-  }
-
-  // Filter products by active category and search term
-  const filteredProducts = useCallback(() => {
-    let filtered = products.filter((product) => product.category?.name === activeCategory)
-
-    if (searchTerm) {
-      const lowerSearchTerm = searchTerm.toLowerCase()
-      filtered = filtered.filter((product) => product.name.toLowerCase().includes(lowerSearchTerm))
-    }
-
-    return filtered
-  }, [products, activeCategory, searchTerm])
-
   const handleBackClick = () => {
     if (hasUnsavedChanges) {
       setIsUnsavedChangesDialogOpen(true)
@@ -634,11 +662,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </Button>
         <h1 className="text-2xl font-bold">Packliste: {event.name}</h1>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setIsPrintPreviewOpen(true)} className="flex items-center gap-2">
             <FileDown className="h-4 w-4" />
             PDF Export
           </Button>
-          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setIsEditDialogOpen(true)} className="flex items-center gap-2">
             <Edit className="h-4 w-4" />
             Bearbeiten
           </Button>
@@ -649,18 +677,18 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       </div>
 
-      {/* Event Information and Print Ready Status */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Event Information - takes 3 columns */}
-        <div className="lg:col-span-3 bg-white p-4 rounded-lg shadow-sm">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <p className="text-sm text-gray-500">Typ</p>
-              <p className="font-medium">{event.type}</p>
+      {/* Event Information and Status Buttons - Expanded Horizontal Layout */}
+      <div className="bg-white p-4 rounded-lg shadow-sm">
+        <div className="flex items-center justify-between gap-8">
+          {/* Event Information - Expanded with more space and light grey background */}
+          <div className="flex items-center justify-between flex-1 min-w-0 pr-8 bg-gray-50 p-3 rounded-lg border border-gray-200">
+            <div className="text-center">
+              <p className="text-xs text-gray-500">Typ</p>
+              <p className="font-medium text-sm">{event.type}</p>
             </div>
-            <div>
-              <p className="text-sm text-gray-500">Datum</p>
-              <p className="font-medium">
+            <div className="text-center">
+              <p className="text-xs text-gray-500">Datum</p>
+              <p className="font-medium text-sm">
                 {event.date
                   ? event.end_date && event.date !== event.end_date
                     ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
@@ -671,108 +699,165 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               </p>
             </div>
             {event.ft && (
-              <div>
-                <p className="text-sm text-gray-500">Foodtruck</p>
-                <p className="font-medium">{event.ft}</p>
+              <div className="text-center">
+                <p className="text-xs text-gray-500">Foodtruck</p>
+                <p className="font-medium text-sm">{event.ft}</p>
               </div>
             )}
             {event.ka && (
-              <div>
-                <p className="text-sm text-gray-500">Kühlanhänger</p>
-                <p className="font-medium">{event.ka}</p>
+              <div className="text-center">
+                <p className="text-xs text-gray-500">Kühlanhänger</p>
+                <p className="font-medium text-sm">{event.ka}</p>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Print Ready Status - takes 1 column */}
-        <div className="lg:col-span-1 bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-lg shadow-sm border border-blue-100">
-          <div className="flex flex-col items-center space-y-3">
-            <div className="relative">
-              <input
-                type="checkbox"
-                id="print-ready"
-                checked={isPrintReady}
-                onChange={async (e) => {
-                  const newStatus = e.target.checked
-                  setIsPrintReady(newStatus)
+          {/* Status Buttons - Slightly Bigger and Wider */}
+          <div className="flex items-center gap-6 flex-shrink-0">
+            {/* Print Ready Status - Bigger */}
+            <div className="flex items-center gap-3 bg-gradient-to-br from-blue-50 to-indigo-50 px-4 py-3 rounded-lg border border-blue-100">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id="print-ready"
+                  checked={isPrintReady}
+                  onChange={async (e) => {
+                    const newStatus = e.target.checked
+                    setIsPrintReady(newStatus)
 
-                  // Update database
-                  const success = await updatePrintReadyStatus(eventId, newStatus)
+                    // Update database
+                    const success = await updatePrintReadyStatus(eventId, newStatus)
 
-                  if (success) {
-                    // Update the event state as well
-                    if (event) {
-                      setEvent({ ...event, print: newStatus })
+                    if (success) {
+                      // Update the event state as well
+                      if (event) {
+                        setEvent({ ...event, print: newStatus })
+                      }
+                      toast({
+                        title: "Status aktualisiert",
+                        description: newStatus
+                          ? "Event ist bereit zum Drucken"
+                          : "Event ist nicht mehr bereit zum Drucken",
+                      })
+                    } else {
+                      // Revert the state if database update failed
+                      setIsPrintReady(!newStatus)
+                      toast({
+                        title: "Fehler",
+                        description: "Status konnte nicht aktualisiert werden",
+                        variant: "destructive",
+                      })
                     }
-                    toast({
-                      title: "Status aktualisiert",
-                      description: newStatus
-                        ? "Event ist bereit zum Drucken"
-                        : "Event ist nicht mehr bereit zum Drucken",
-                    })
-                  } else {
-                    // Revert the state if database update failed
-                    setIsPrintReady(!newStatus)
-                    toast({
-                      title: "Fehler",
-                      description: "Status konnte nicht aktualisiert werden",
-                      variant: "destructive",
-                    })
-                  }
-                }}
-                className="sr-only"
-              />
-              <label
-                htmlFor="print-ready"
-                className={`relative inline-flex items-center justify-center w-12 h-6 rounded-full cursor-pointer transition-all duration-300 ease-in-out ${
-                  isPrintReady
-                    ? "bg-gradient-to-r from-green-400 to-green-500 shadow-md shadow-green-200"
-                    : "bg-gray-300 hover:bg-gray-400"
-                }`}
-              >
-                <span
-                  className={`absolute w-4 h-4 bg-white rounded-full shadow-sm transform transition-all duration-300 ease-in-out ${
-                    isPrintReady ? "translate-x-3" : "-translate-x-3"
+                  }}
+                  className="sr-only"
+                />
+                <label
+                  htmlFor="print-ready"
+                  className={`relative inline-flex items-center justify-center w-10 h-5 rounded-full cursor-pointer transition-all duration-300 ease-in-out ${
+                    isPrintReady
+                      ? "bg-gradient-to-r from-yellow-400 to-yellow-500 shadow-sm shadow-yellow-200"
+                      : "bg-gray-300 hover:bg-gray-400"
                   }`}
                 >
-                  {isPrintReady && (
-                    <svg
-                      className="w-3 h-3 text-green-500 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  )}
-                </span>
-              </label>
-            </div>
-
-            <div className="text-center">
-              <label htmlFor="print-ready" className="text-sm font-semibold text-gray-800 cursor-pointer block">
+                  <span
+                    className={`absolute w-3 h-3 bg-white rounded-full shadow-sm transform transition-all duration-300 ease-in-out ${
+                      isPrintReady ? "translate-x-2.5" : "-translate-x-2.5"
+                    }`}
+                  >
+                    {isPrintReady && (
+                      <svg
+                        className="w-2 h-2 text-yellow-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                </label>
+              </div>
+              <label
+                htmlFor="print-ready"
+                className="text-sm font-medium text-gray-800 cursor-pointer whitespace-nowrap"
+              >
                 Bereit zum Drucken
               </label>
-              <p className="text-xs text-gray-600 mt-1">Packliste fertig</p>
             </div>
 
-            {isPrintReady && (
-              <div className="flex items-center justify-center animate-fade-in">
-                <div className="flex items-center justify-center w-8 h-8 bg-green-100 rounded-full">
-                  <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </div>
+            {/* Finished Status - Bigger */}
+            <div className="flex items-center gap-3 bg-gradient-to-br from-green-50 to-emerald-50 px-4 py-3 rounded-lg border border-green-100">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id="finished"
+                  checked={isFinished}
+                  onChange={async (e) => {
+                    const newStatus = e.target.checked
+                    setIsFinished(newStatus)
+
+                    // Update database
+                    const success = await updateFinishedStatus(newStatus)
+
+                    if (success) {
+                      // Update the event state as well
+                      if (event) {
+                        setEvent({ ...event, finished: newStatus })
+                      }
+                      toast({
+                        title: "Status aktualisiert",
+                        description: newStatus
+                          ? "Event ist als fertig markiert"
+                          : "Event ist nicht mehr als fertig markiert",
+                      })
+                    } else {
+                      // Revert the state if database update failed
+                      setIsFinished(!newStatus)
+                      toast({
+                        title: "Fehler",
+                        description: "Status konnte nicht aktualisiert werden",
+                        variant: "destructive",
+                      })
+                    }
+                  }}
+                  className="sr-only"
+                />
+                <label
+                  htmlFor="finished"
+                  className={`relative inline-flex items-center justify-center w-10 h-5 rounded-full cursor-pointer transition-all duration-300 ease-in-out ${
+                    isFinished
+                      ? "bg-gradient-to-r from-green-400 to-green-500 shadow-sm shadow-green-200"
+                      : "bg-gray-300 hover:bg-gray-400"
+                  }`}
+                >
+                  <span
+                    className={`absolute w-3 h-3 bg-white rounded-full shadow-sm transform transition-all duration-300 ease-in-out ${
+                      isFinished ? "translate-x-2.5" : "-translate-x-2.5"
+                    }`}
+                  >
+                    {isFinished && (
+                      <svg
+                        className="w-2 h-2 text-green-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                </label>
               </div>
-            )}
+              <label htmlFor="finished" className="text-sm font-medium text-gray-800 cursor-pointer whitespace-nowrap">
+                Fertig
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -863,20 +948,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Delete All Button for Current Category */}
-      <div className="flex justify-end mt-4 mb-6">
-        <Button
-          variant="destructive"
-          onClick={() => handleDeleteAllInCategory(activeCategory)}
-          disabled={
-            !Object.keys(selectedProducts).some((productName) => productCategories[productName] === activeCategory)
-          }
-          className="bg-red-600 hover:bg-red-700 text-white"
-        >
-          Alles Löschen ({activeCategory})
-        </Button>
       </div>
 
       {/* Two-column layout for Selected Products and Ingredients */}
@@ -988,127 +1059,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       </div>
 
-      {/* Edit Event Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Event bearbeiten</DialogTitle>
-            <DialogDescription>Ändern Sie die Details des Events und klicken Sie auf Speichern.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Event Name</Label>
-              <Input id="edit-name" value={event.name} onChange={(e) => setEvent({ ...event, name: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-type">Typ</Label>
-              <Select value={event.type} onValueChange={(value) => setEvent({ ...event, type: value })}>
-                <SelectTrigger id="edit-type">
-                  <SelectValue placeholder="Typ auswählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Catering">Catering</SelectItem>
-                  <SelectItem value="Verkauf">Verkauf</SelectItem>
-                  <SelectItem value="Lieferung">Lieferung</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-ft">Foodtruck</Label>
-                <Select
-                  value={event.ft || "none"}
-                  onValueChange={(value) => setEvent({ ...event, ft: value === "none" ? null : value })}
-                >
-                  <SelectTrigger id="edit-ft">
-                    <SelectValue placeholder="FT auswählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">-</SelectItem>
-                    <SelectItem value="FT1">FT1</SelectItem>
-                    <SelectItem value="FT2">FT2</SelectItem>
-                    <SelectItem value="FT3">FT3</SelectItem>
-                    <SelectItem value="FT4">FT4</SelectItem>
-                    <SelectItem value="FT5">FT5</SelectItem>
-                    <SelectItem value="Indoor">Indoor</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-ka">Kühlanhänger</Label>
-                <Select
-                  value={event.ka || "none"}
-                  onValueChange={(value) => setEvent({ ...event, ka: value === "none" ? null : value })}
-                >
-                  <SelectTrigger id="edit-ka">
-                    <SelectValue placeholder="KA auswählen" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">-</SelectItem>
-                    <SelectItem value="KA 1">KA 1</SelectItem>
-                    <SelectItem value="KA 2">KA 2</SelectItem>
-                    <SelectItem value="KA 3">KA 3</SelectItem>
-                    <SelectItem value="KA 4">KA 4</SelectItem>
-                    <SelectItem value="KA 5">KA 5</SelectItem>
-                    <SelectItem value="K-FZ">K-FZ</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Datum</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="date"
-                  value={editDate ? format(editDate, "yyyy-MM-dd") : ""}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setEditDate(new Date(e.target.value))
-                    } else {
-                      setEditDate(undefined)
-                    }
-                  }}
-                  className="flex-1"
-                />
-                {editDate && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setEditDate(undefined)}>
-                    Entfernen
-                  </Button>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Enddatum</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="date"
-                  value={editEndDate ? format(editEndDate, "yyyy-MM-dd") : ""}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setEditEndDate(new Date(e.target.value))
-                    } else {
-                      setEditEndDate(undefined)
-                    }
-                  }}
-                  className="flex-1"
-                />
-                {editEndDate && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setEditEndDate(undefined)}>
-                    Entfernen
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-              Abbrechen
-            </Button>
-            <Button onClick={handleUpdateEvent}>Speichern</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Unsaved Changes Dialog */}
       <Dialog open={isUnsavedChangesDialogOpen} onOpenChange={setIsUnsavedChangesDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
@@ -1133,366 +1083,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               Speichern & Zurück
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete All Confirmation Dialog */}
-      <Dialog open={isDeleteAllDialogOpen} onOpenChange={setIsDeleteAllDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Alle Produkte löschen</DialogTitle>
-            <DialogDescription>
-              Sind Sie sicher, dass Sie alle ausgewählten Produkte aus der Kategorie "{categoryToDelete}" löschen
-              möchten? Diese Aktion kann nicht rückgängig gemacht werden.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex justify-between gap-2 flex-row">
-            <Button variant="outline" onClick={() => setIsDeleteAllDialogOpen(false)} className="flex-1">
-              Abbrechen
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDeleteAllInCategory}
-              className="flex-1 bg-red-600 hover:bg-red-700"
-            >
-              Alle löschen
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Print Preview Dialog */}
-      <Dialog open={isPrintPreviewOpen} onOpenChange={setIsPrintPreviewOpen}>
-        <DialogContent className="max-w-5xl max-h-[85vh] p-0">
-          <div className="flex flex-col h-full">
-            {/* Fixed Header */}
-            <div className="flex items-center justify-between p-4 border-b bg-gray-50 flex-shrink-0">
-              <div>
-                <DialogTitle className="text-lg font-semibold">Druckvorschau</DialogTitle>
-                <DialogDescription className="text-sm text-gray-600">
-                  Überprüfen Sie Ihre Packliste vor dem Drucken
-                </DialogDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setIsPrintPreviewOpen(false)}>
-                  Zurück
-                </Button>
-                <Button onClick={handleExportPdf} className="bg-blue-600 hover:bg-blue-700">
-                  <FileDown className="h-4 w-4 mr-2" />
-                  PDF erstellen
-                </Button>
-              </div>
-            </div>
-
-            {/* Scrollable Content Area */}
-            <div className="flex-1 overflow-y-auto bg-gray-400 p-8" style={{ maxHeight: "calc(85vh - 80px)" }}>
-              <div className="space-y-8">
-                {(() => {
-                  const pages = []
-
-                  // Calculate products per page (similar to PDF logic)
-                  const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> = {}
-
-                  Object.entries(selectedProducts).forEach(([productName, details]) => {
-                    const category = productCategories[productName] || "Sonstige"
-                    if (!productsByCategory[category]) {
-                      productsByCategory[category] = []
-                    }
-                    productsByCategory[category].push({
-                      name: productName,
-                      quantity: details.quantity,
-                      unit: details.unit,
-                    })
-                  })
-
-                  const sortedCategories = packlisteCategories.filter((cat) => productsByCategory[cat]?.length > 0)
-                  const maxProductsInCategory = Math.max(
-                    ...sortedCategories.map((cat) => productsByCategory[cat].length),
-                    0,
-                  )
-
-                  // Calculate how many product pages we need (approximately 25 rows per page)
-                  const rowsPerPage = 25
-                  const productPages = Math.max(1, Math.ceil(maxProductsInCategory / rowsPerPage))
-
-                  // Generate product pages
-                  for (let pageNum = 1; pageNum <= productPages; pageNum++) {
-                    const startRow = (pageNum - 1) * rowsPerPage
-                    const endRow = pageNum * rowsPerPage
-
-                    pages.push(
-                      <div key={`product-page-${pageNum}`} className="flex flex-col items-center">
-                        <div className="mb-3 text-sm font-medium text-gray-700 bg-white px-3 py-1 rounded shadow">
-                          Seite {pageNum} - Packliste
-                        </div>
-                        <div
-                          className="bg-white shadow-xl border border-gray-500 mx-auto"
-                          style={{ width: "794px", height: "562px" }}
-                        >
-                          <div className="w-full h-full p-6 flex flex-col font-sans">
-                            {/* Header */}
-                            <div className="border-b border-gray-400 pb-1 mb-3">
-                              <div className="text-xs text-gray-600 font-medium">
-                                {event?.type} | {event?.name} |{" "}
-                                {event?.date
-                                  ? event?.end_date && event.date !== event.end_date
-                                    ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
-                                        event.end_date,
-                                      ).toLocaleDateString("de-DE")}`
-                                    : new Date(event.date).toLocaleDateString("de-DE")
-                                  : "Kein Datum"}
-                                {event?.ft && ` | ${event.ft}`}
-                                {event?.ka && ` | ${event.ka}`}
-                              </div>
-                            </div>
-
-                            {/* Title */}
-                            <div className="mb-4">
-                              <h1 className="text-base font-bold text-black leading-tight">
-                                Packliste: {event?.name} |{" "}
-                                {event?.date
-                                  ? event?.end_date && event.date !== event.end_date
-                                    ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
-                                        event.end_date,
-                                      ).toLocaleDateString("de-DE")}`
-                                    : new Date(event.date).toLocaleDateString("de-DE")
-                                  : "Kein Datum"}
-                                {event?.ft && ` | ${event.ft}`}
-                                {event?.ka && ` | ${event.ka}`}
-                              </h1>
-                              <div className="border-b-2 border-black mt-1"></div>
-                            </div>
-
-                            {/* Products Grid - 6 columns */}
-                            <div className="flex-1 grid grid-cols-6 gap-3 text-xs">
-                              {sortedCategories.map((category) => {
-                                const categoryProducts = productsByCategory[category]
-                                  .sort((a, b) => a.name.localeCompare(b.name))
-                                  .slice(startRow, endRow)
-
-                                return (
-                                  <div key={category} className="flex flex-col">
-                                    {/* Category header only on first page */}
-                                    {pageNum === 1 && (
-                                      <>
-                                        <h3 className="font-bold text-xs border-b border-black pb-1 mb-2">
-                                          {category}
-                                        </h3>
-                                      </>
-                                    )}
-                                    {/* Category header on subsequent pages */}
-                                    {pageNum > 1 && categoryProducts.length > 0 && (
-                                      <>
-                                        <h3 className="font-bold text-xs border-b border-black pb-1 mb-2">
-                                          {category} (Forts.)
-                                        </h3>
-                                      </>
-                                    )}
-                                    <div className="space-y-1">
-                                      {categoryProducts.map((product, index) => (
-                                        <div key={`${product.name}-${index}`} className="flex items-start gap-1">
-                                          <div className="w-2 h-2 border border-black mt-0.5 flex-shrink-0"></div>
-                                          <span className="text-xs leading-tight break-words">
-                                            {product.quantity}x {product.name}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-
-                            {/* Signature Box - only on last product page */}
-                            {pageNum === productPages && (
-                              <div className="mt-4">
-                                <div className="border-2 border-black p-2">
-                                  <div className="text-xs">
-                                    <strong>Erledigt von:</strong> ______________________{" "}
-                                    <strong>Datum & Uhrzeit:</strong> _____________________
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Footer */}
-                            <div className="border-t border-gray-400 pt-1 mt-2">
-                              <div className="text-xs text-gray-600 flex justify-between">
-                                <span>
-                                  {event?.type} | {event?.name} |{" "}
-                                  {event?.date
-                                    ? event?.end_date && event.date !== event.end_date
-                                      ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
-                                          event.end_date,
-                                        ).toLocaleDateString("de-DE")}`
-                                      : new Date(event.date).toLocaleDateString("de-DE")
-                                    : "Kein Datum"}
-                                  {event?.ft && ` | ${event.ft}`}
-                                  {event?.ka && ` | ${event.ka}`}
-                                </span>
-                                <span className="font-bold">Seite {pageNum}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>,
-                    )
-                  }
-
-                  // Add ingredients pages if there are ingredients
-                  if (Object.keys(calculatedIngredients).length > 0) {
-                    const sortedIngredients = Object.entries(calculatedIngredients).sort(([a], [b]) =>
-                      a.localeCompare(b),
-                    )
-                    const ingredientsPerPage = 30
-                    const ingredientPages = Math.ceil(sortedIngredients.length / ingredientsPerPage)
-
-                    for (let pageNum = 1; pageNum <= ingredientPages; pageNum++) {
-                      const startIndex = (pageNum - 1) * ingredientsPerPage
-                      const endIndex = pageNum * ingredientsPerPage
-                      const pageIngredients = sortedIngredients.slice(startIndex, endIndex)
-                      const actualPageNum = productPages + pageNum
-
-                      pages.push(
-                        <div key={`ingredient-page-${pageNum}`} className="flex flex-col items-center">
-                          <div className="mb-3 text-sm font-medium text-gray-700 bg-white px-3 py-1 rounded shadow">
-                            Seite {actualPageNum} - Zutaten{" "}
-                            {ingredientPages > 1 ? `(${pageNum}/${ingredientPages})` : ""}
-                          </div>
-                          <div
-                            className="bg-white shadow-xl border border-gray-500 mx-auto"
-                            style={{ width: "794px", height: "562px" }}
-                          >
-                            <div className="w-full h-full p-6 flex flex-col font-sans">
-                              {/* Header */}
-                              <div className="border-b border-gray-400 pb-1 mb-3">
-                                <div className="text-xs text-gray-600 font-medium">
-                                  {event?.type} | {event?.name} |{" "}
-                                  {event?.date
-                                    ? event?.end_date && event.date !== event.end_date
-                                      ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
-                                          event.end_date,
-                                        ).toLocaleDateString("de-DE")}`
-                                      : new Date(event.date).toLocaleDateString("de-DE")
-                                    : "Kein Datum"}
-                                  {event?.ft && ` | ${event.ft}`}
-                                  {event?.ka && ` | ${event.ka}`}
-                                </div>
-                              </div>
-
-                              {/* Title */}
-                              <div className="mb-4">
-                                <h1 className="text-base font-bold text-black">Zutaten</h1>
-                                <div className="border-b-2 border-black mt-1"></div>
-                              </div>
-
-                              {/* Ingredients List */}
-                              <div className="flex-1">
-                                <div className="space-y-1">
-                                  {pageIngredients.map(([ingredient, details]) => (
-                                    <div
-                                      key={ingredient}
-                                      className="flex items-start gap-3 text-xs py-1 border-b border-gray-200"
-                                    >
-                                      <div className="w-2 h-2 border border-black mt-1 flex-shrink-0"></div>
-                                      <div className="flex-1 min-w-0">
-                                        <span className="font-medium">{ingredient}</span>
-                                      </div>
-                                      <div className="w-40 text-right text-xs">
-                                        {details.packagingCount}{" "}
-                                        {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
-                                        {formatWeight(details.amountPerPackage, details.unit)}
-                                      </div>
-                                      <div className="w-20 text-right font-bold text-xs">
-                                        {formatWeight(details.totalAmount, details.unit)}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-
-                              {/* Signature Box - only on last ingredients page */}
-                              {pageNum === ingredientPages && (
-                                <div className="mt-4">
-                                  <div className="border-2 border-black p-2">
-                                    <div className="text-xs">
-                                      <strong>Erledigt von:</strong> ______________________{" "}
-                                      <strong>Datum & Uhrzeit:</strong> _____________________
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Footer */}
-                              <div className="border-t border-gray-400 pt-1 mt-2">
-                                <div className="text-xs text-gray-600 flex justify-between">
-                                  <span>
-                                    {event?.type} | {event?.name} |{" "}
-                                    {event?.date
-                                      ? event?.end_date && event.date !== event.end_date
-                                        ? `${new Date(event.date).toLocaleDateString("de-DE")} - ${new Date(
-                                            event.end_date,
-                                          ).toLocaleDateString("de-DE")}`
-                                        : new Date(event.date).toLocaleDateString("de-DE")
-                                      : "Kein Datum"}
-                                    {event?.ft && ` | ${event.ft}`}
-                                    {event?.ka && ` | ${event.ka}`}
-                                  </span>
-                                  <span className="font-bold">Seite {actualPageNum}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>,
-                      )
-                    }
-                  }
-
-                  return pages
-                })()}
-
-                {/* Document Info */}
-                <div className="text-center py-6">
-                  <div className="inline-flex items-center gap-2 bg-white px-6 py-3 rounded-lg shadow-lg border">
-                    <span className="text-xl">📄</span>
-                    <span className="font-semibold text-gray-800">
-                      {(() => {
-                        const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> =
-                          {}
-                        Object.entries(selectedProducts).forEach(([productName, details]) => {
-                          const category = productCategories[productName] || "Sonstige"
-                          if (!productsByCategory[category]) {
-                            productsByCategory[category] = []
-                          }
-                          productsByCategory[category].push({
-                            name: productName,
-                            quantity: details.quantity,
-                            unit: details.unit,
-                          })
-                        })
-
-                        const sortedCategories = packlisteCategories.filter(
-                          (cat) => productsByCategory[cat]?.length > 0,
-                        )
-                        const maxProductsInCategory = Math.max(
-                          ...sortedCategories.map((cat) => productsByCategory[cat].length),
-                          0,
-                        )
-                        const productPages = Math.max(1, Math.ceil(maxProductsInCategory / 25))
-                        const ingredientPages =
-                          Object.keys(calculatedIngredients).length > 0
-                            ? Math.ceil(Object.keys(calculatedIngredients).length / 30)
-                            : 0
-                        const totalPages = productPages + ingredientPages
-
-                        return `${totalPages} ${totalPages === 1 ? "Seite" : "Seiten"}`
-                      })()}• A4 Querformat (297×210mm)
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

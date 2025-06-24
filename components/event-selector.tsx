@@ -291,13 +291,20 @@ export function EventSelector() {
       <div className="space-y-4 mt-4">
         {eventList.map((event) => {
           const isPrintReady = event.print || false
+          const isFinished = event.finished || false
+
+          // Determine background color based on status
+          let backgroundClass = "hover:bg-muted"
+          if (isFinished) {
+            backgroundClass = "bg-green-100 border-green-300 hover:bg-green-300"
+          } else if (isPrintReady) {
+            backgroundClass = "bg-yellow-100 border-yellow-300 hover:bg-yellow-200"
+          }
 
           return (
             <div
               key={event.id}
-              className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer ${
-                isPrintReady ? "bg-green-100 border-green-300 hover:bg-green-200" : "hover:bg-muted"
-              }`}
+              className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer ${backgroundClass}`}
               onClick={() => handleSelectEvent(event.id)}
             >
               <div>
@@ -313,8 +320,20 @@ export function EventSelector() {
               </div>
               <div className="flex items-center space-x-2">
                 <div className="text-sm">
-                  {isPrintReady && (
+                  {isFinished && (
                     <div className="flex items-center text-green-700 mb-1">
+                      <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      Fertig
+                    </div>
+                  )}
+                  {isPrintReady && !isFinished && (
+                    <div className="flex items-center text-yellow-700 mb-1">
                       <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path
                           fillRule="evenodd"

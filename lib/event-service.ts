@@ -57,6 +57,7 @@ export async function createEvent(event: {
         ft: event.ft,
         ka: event.ka,
         print: false,
+        finished: false,
       },
     ])
     .select()
@@ -149,6 +150,17 @@ export async function updatePrintReadyStatus(id: string, isReady: boolean): Prom
 
   if (error) {
     console.error("Error updating print ready status:", error)
+    return false
+  }
+
+  return true
+}
+
+export async function updateFinishedStatus(id: string, isFinished: boolean): Promise<boolean> {
+  const { error } = await supabase.from("events").update({ finished: isFinished }).eq("id", id)
+
+  if (error) {
+    console.error("Error updating finished status:", error)
     return false
   }
 
