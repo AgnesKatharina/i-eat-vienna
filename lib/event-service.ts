@@ -42,7 +42,6 @@ export async function createEvent(event: {
   name: string
   type: string
   date: string | null
-  end_date: string | null
   ft: string | null
   ka: string | null
 }): Promise<Event | null> {
@@ -53,7 +52,6 @@ export async function createEvent(event: {
         name: event.name,
         type: event.type,
         date: event.date,
-        end_date: event.end_date,
         ft: event.ft,
         ka: event.ka,
         print: false,
@@ -76,7 +74,6 @@ export async function updateEvent(
     name?: string
     type?: string
     date?: string | null
-    end_date?: string | null
     ft?: string | null
     ka?: string | null
   },

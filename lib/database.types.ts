@@ -3,7 +3,6 @@ export interface Event {
   name: string
   type: string
   date: string | null
-  end_date: string | null
   ft: string | null
   ka: string | null
   created_at: string

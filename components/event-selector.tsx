@@ -41,7 +41,6 @@ export function EventSelector() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("new")
   const [date, setDate] = useState<Date | undefined>(new Date())
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined) // Add this line
   const [newEvent, setNewEvent] = useState({
     name: "",
     type: "Catering",
@@ -50,7 +49,6 @@ export function EventSelector() {
   })
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
   const [editDate, setEditDate] = useState<Date | undefined>(undefined)
-  const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined) // Add this line
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [eventToDelete, setEventToDelete] = useState<Event | null>(null)
@@ -140,7 +138,6 @@ export function EventSelector() {
       name: newEvent.name,
       type: newEvent.type,
       date: date ? format(date, "yyyy-MM-dd") : null,
-      end_date: endDate ? format(endDate, "yyyy-MM-dd") : null, // Add this line
       ft: newEvent.ft.length > 0 ? newEvent.ft.join(" & ") : null,
       ka: newEvent.ka.length > 0 ? newEvent.ka.join(" & ") : null,
     })
@@ -162,7 +159,6 @@ export function EventSelector() {
     e.stopPropagation()
     setEditingEvent(event)
     setEditDate(event.date ? new Date(event.date) : undefined)
-    setEditEndDate(event.end_date ? new Date(event.end_date) : undefined) // Add this line
     setIsEditDialogOpen(true)
   }
 
@@ -179,7 +175,6 @@ export function EventSelector() {
       name: editingEvent.name,
       type: editingEvent.type,
       date: editDate ? format(editDate, "yyyy-MM-dd") : null,
-      end_date: editEndDate ? format(editEndDate, "yyyy-MM-dd") : null, // Add this line
       ft: editingEvent.ft || null,
       ka: editingEvent.ka || null,
     })
@@ -295,8 +290,8 @@ export function EventSelector() {
           return (
             <div
               key={event.id}
-              className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer ${
-                isPrintReady ? "bg-green-100 border-green-300 hover:bg-green-200" : "hover:bg-muted"
+              className={`flex items-center justify-between p-4 border rounded-lg hover:bg-muted cursor-pointer ${
+                isPrintReady ? "bg-green-50 border-green-200 hover:bg-green-100" : ""
               }`}
               onClick={() => handleSelectEvent(event.id)}
             >
@@ -304,17 +299,13 @@ export function EventSelector() {
                 <h3 className="font-medium">{event.name}</h3>
                 <div className="text-sm text-muted-foreground">
                   {event.type} •{" "}
-                  {event.date
-                    ? event.end_date && event.date !== event.end_date
-                      ? `${format(new Date(event.date), "dd.MM.yyyy", { locale: de })} - ${format(new Date(event.end_date), "dd.MM.yyyy", { locale: de })}`
-                      : format(new Date(event.date), "dd.MM.yyyy", { locale: de })
-                    : "Kein Datum"}
+                  {event.date ? format(new Date(event.date), "dd.MM.yyyy", { locale: de }) : "Kein Datum"}
                 </div>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="text-sm">
                   {isPrintReady && (
-                    <div className="flex items-center text-green-700 mb-1">
+                    <div className="flex items-center text-green-600 mb-1">
                       <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path
                           fillRule="evenodd"
@@ -568,43 +559,6 @@ export function EventSelector() {
                   </PopoverContent>
                 </Popover>
               </div>
-              <div className="space-y-2">
-                <Label>Enddatum (optional)</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn("w-full justify-start text-left font-normal", !endDate && "text-muted-foreground")}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {endDate ? format(endDate, "PPP", { locale: de }) : <span>Enddatum auswählen</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={endDate}
-                      onSelect={(selectedDate) => {
-                        setEndDate(selectedDate)
-                      }}
-                      initialFocus
-                      locale={de}
-                      disabled={(date) => date && date < (date || new Date())}
-                    />
-                  </PopoverContent>
-                </Popover>
-                {endDate && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setEndDate(undefined)}
-                    className="w-full"
-                  >
-                    Enddatum entfernen
-                  </Button>
-                )}
-              </div>
             </div>
           </TabsContent>
 
@@ -625,7 +579,7 @@ export function EventSelector() {
           onClick={() => router.push("/")}
           className="bg-red-50 border-red-200 text-red-700 hover:bg-red-100 hover:border-red-300 hover:text-red-800"
         >
-          Zurück zum Hauptmenü
+          Zurück
         </Button>
         {activeTab === "new" && <Button onClick={handleCreateEvent}>Event erstellen</Button>}
       </CardFooter>
@@ -722,28 +676,6 @@ export function EventSelector() {
                   />
                   {editDate && (
                     <Button type="button" variant="outline" size="sm" onClick={() => setEditDate(undefined)}>
-                      Entfernen
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Enddatum</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="date"
-                    value={editEndDate ? format(editEndDate, "yyyy-MM-dd") : ""}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setEditEndDate(new Date(e.target.value))
-                      } else {
-                        setEditEndDate(undefined)
-                      }
-                    }}
-                    className="flex-1"
-                  />
-                  {editEndDate && (
-                    <Button type="button" variant="outline" size="sm" onClick={() => setEditEndDate(undefined)}>
                       Entfernen
                     </Button>
                   )}

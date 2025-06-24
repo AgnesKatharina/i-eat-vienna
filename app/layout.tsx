@@ -1,7 +1,9 @@
 import type React from "react"
 import "@/app/globals.css"
 import { Inter } from "next/font/google"
-import { AuthProvider } from "@/components/auth-provider"
+import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toaster"
+import { InstallPrompt } from "@/components/install-prompt"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -43,7 +45,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="de" suppressHydrationWarning>
       <head>
         {/* PWA Icons */}
         <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -110,7 +112,11 @@ export default function RootLayout({
         />
       </head>
       <body className={inter.className}>
-        <AuthProvider>{children}</AuthProvider>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+          {children}
+          <InstallPrompt />
+          <Toaster />
+        </ThemeProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `
