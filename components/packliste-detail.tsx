@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Save, Edit, FileDown, Search } from "lucide-react"
+import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -38,6 +38,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   // State variables
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [selectedProducts, setSelectedProducts] = useState<Record<string, SelectedProduct>>({})
   const [calculatedIngredients, setCalculatedIngredients] = useState<Record<string, CalculatedIngredient>>({})
   const [eventDetails, setEventDetails] = useState<EventDetails>({
@@ -67,6 +68,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const [isPrintReady, setIsPrintReady] = useState(false)
   const [isFinished, setIsFinished] = useState(false)
   const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false)
+  const [printPreviewContent, setPrintPreviewContent] = useState<string>("")
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false)
 
   // Define the correct order of categories for Packliste mode
   const packlisteCategories = ["Essen", "Getränke Pet", "Getränke Glas", "Getränke Spezial", "Equipment", "Kassa"]
@@ -495,6 +498,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   }
 
   const handleSave = async () => {
+    setSaving(true)
     try {
       await saveEventProducts(
         eventId,
@@ -517,17 +521,27 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       })
       setHasUnsavedChanges(false)
 
+      // Show success animation
+      setShowSaveSuccess(true)
+      setTimeout(() => setShowSaveSuccess(false), 3000)
+
+      // Show toast notification
       toast({
-        title: "Erfolg",
-        description: "Packliste wurde gespeichert.",
+        title: "✅ Erfolgreich gespeichert!",
+        description: "Alle Änderungen wurden erfolgreich in der Packliste gespeichert.",
+        duration: 5000,
+        className: "bg-green-50 border-green-200 text-green-800 shadow-lg",
       })
     } catch (error) {
       console.error("Error saving event products:", error)
       toast({
-        title: "Fehler",
-        description: "Packliste konnte nicht gespeichert werden.",
+        title: "❌ Fehler beim Speichern",
+        description: "Packliste konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
         variant: "destructive",
+        duration: 5000,
       })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -577,8 +591,40 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     }
   }
 
-  const handleShowPrintPreview = () => {
-    setIsPrintPreviewOpen(true)
+  const handleShowPrintPreview = async () => {
+    if (!event) return
+
+    try {
+      // Create the print preview content
+      const currentEventDetails: EventDetails = {
+        type: event.type || "Catering",
+        name: event.name || "",
+        ft: event.ft || "",
+        ka: event.ka || "",
+        date: event.date ? format(new Date(event.date), "dd.MM.yyyy", { locale: de }) : "",
+        supplierName: "",
+      }
+
+      // Generate HTML content for print preview
+      const htmlContent = generatePrintPreviewHTML(
+        selectedProducts,
+        calculatedIngredients,
+        currentEventDetails,
+        formatWeight,
+        getUnitPlural,
+        productCategories,
+      )
+
+      setPrintPreviewContent(htmlContent)
+      setIsPrintPreviewOpen(true)
+    } catch (error) {
+      console.error("Error generating print preview:", error)
+      toast({
+        title: "Fehler",
+        description: "Druckvorschau konnte nicht erstellt werden.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleExportPdf = async () => {
@@ -620,6 +666,254 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     }
   }
 
+  const generatePrintPreviewHTML = (
+    selectedProducts: Record<string, SelectedProduct>,
+    calculatedIngredients: Record<string, CalculatedIngredient>,
+    eventDetails: EventDetails,
+    formatWeight: (value: number, unit: string) => string,
+    getUnitPlural: (quantity: number, unit: string) => string,
+    productCategories: Record<string, string>,
+  ): string => {
+    // Group products by their actual categories
+    const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> = {}
+
+    Object.entries(selectedProducts).forEach(([productName, details]) => {
+      const category = productCategories[productName] || "Sonstige"
+      if (!productsByCategory[category]) {
+        productsByCategory[category] = []
+      }
+      productsByCategory[category].push({
+        name: productName,
+        quantity: details.quantity,
+        unit: details.unit,
+      })
+    })
+
+    const sortedCategories = Object.keys(productsByCategory).sort()
+
+    // Generate HTML
+    let html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Packliste: ${eventDetails.name}</title>
+        <style>
+          @media print {
+            @page { margin: 1cm; }
+            body { margin: 0; }
+          }
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            margin: 20px;
+          }
+          .header {
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+          }
+          .title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+          }
+          .event-info {
+            font-size: 14px;
+            color: #666;
+          }
+          .products-section {
+            margin-bottom: 30px;
+          }
+          .category-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 20px;
+            margin-bottom: 20px;
+          }
+          .category {
+            break-inside: avoid;
+          }
+          .category-title {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 8px;
+            padding-bottom: 3px;
+            border-bottom: 1px solid #ccc;
+          }
+          .product-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: 11px;
+          }
+          .checkbox {
+            width: 12px;
+            height: 12px;
+            border: 1px solid #333;
+            margin-right: 6px;
+            flex-shrink: 0;
+          }
+          .ingredients-section {
+            page-break-before: always;
+            margin-top: 30px;
+          }
+          .ingredients-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 5px;
+          }
+          .ingredients-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .ingredients-table th,
+          .ingredients-table td {
+            border: 1px solid #e5e5e5;
+            padding: 6px;
+            text-align: left;
+          }
+          .ingredients-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+          }
+          .signature-box {
+            margin-top: 30px;
+            border: 1px solid #333;
+            padding: 15px;
+            height: 40px;
+          }
+          .signature-text {
+            font-size: 11px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="title">Packliste: ${eventDetails.name}</div>
+          <div class="event-info">
+            ${eventDetails.type} | ${eventDetails.date || "Kein Datum"}
+            ${eventDetails.ft ? ` | ${eventDetails.ft}` : ""}
+            ${eventDetails.ka ? ` | ${eventDetails.ka}` : ""}
+          </div>
+        </div>
+
+        <div class="products-section">
+          <div class="category-grid">
+    `
+
+    // Add products by category
+    sortedCategories.forEach((category) => {
+      const products = productsByCategory[category].sort((a, b) => a.name.localeCompare(b.name))
+      html += `
+            <div class="category">
+              <div class="category-title">${category}</div>
+      `
+
+      products.forEach((product) => {
+        html += `
+              <div class="product-item">
+                <div class="checkbox"></div>
+                <span>${product.quantity}x ${product.name}</span>
+              </div>
+        `
+      })
+
+      html += `
+            </div>
+      `
+    })
+
+    html += `
+          </div>
+        </div>
+    `
+
+    // Add ingredients section if there are any
+    if (Object.keys(calculatedIngredients).length > 0) {
+      html += `
+        <div class="ingredients-section">
+          <div class="ingredients-title">Zutaten</div>
+          <table class="ingredients-table">
+            <thead>
+              <tr>
+                <th style="width: 20px;"></th>
+                <th>Zutat</th>
+                <th>Verpackung</th>
+                <th>Gesamtmenge</th>
+              </tr>
+            </thead>
+            <tbody>
+      `
+
+      Object.entries(calculatedIngredients)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .forEach(([ingredient, details]) => {
+          html += `
+              <tr>
+                <td><div class="checkbox"></div></td>
+                <td>${ingredient}</td>
+                <td>${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
+                <td>${formatWeight(details.totalAmount, details.unit)}</td>
+              </tr>
+          `
+        })
+
+      html += `
+            </tbody>
+          </table>
+        </div>
+      `
+    }
+
+    // Add signature box
+    html += `
+        <div class="signature-box">
+          <div class="signature-text">
+            Erledigt von: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Datum & Uhrzeit: _____________________
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+
+    return html
+  }
+
+  const handlePrint = () => {
+    if (!printPreviewContent) return
+
+    // Create a new window for printing
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      toast({
+        title: "Fehler",
+        description: "Popup-Blocker verhindert das Öffnen des Druckfensters.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    printWindow.document.write(printPreviewContent)
+    printWindow.document.close()
+
+    // Wait for content to load, then print
+    printWindow.onload = () => {
+      printWindow.focus()
+      printWindow.print()
+      printWindow.close()
+    }
+
+    setIsPrintPreviewOpen(false)
+    toast({
+      title: "Erfolg",
+      description: "Druckdialog wurde geöffnet.",
+    })
+  }
+
   const handleBackClick = () => {
     if (hasUnsavedChanges) {
       setIsUnsavedChangesDialogOpen(true)
@@ -655,14 +949,27 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
   return (
     <div className="container mx-auto space-y-6">
+      {/* Success Banner */}
+      {showSaveSuccess && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px]">
+            <CheckCircle className="h-6 w-6 animate-pulse" />
+            <div>
+              <div className="font-semibold">Erfolgreich gespeichert!</div>
+              <div className="text-sm opacity-90">Alle Änderungen wurden gespeichert</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
-        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2">
+        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2 bg-transparent">
           <ArrowLeft className="h-4 w-4" />
           Zurück zur Event-Auswahl
         </Button>
         <h1 className="text-2xl font-bold">Packliste: {event.name}</h1>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setIsPrintPreviewOpen(true)} className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2 bg-transparent">
             <FileDown className="h-4 w-4" />
             PDF Export
           </Button>
@@ -670,9 +977,24 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <Edit className="h-4 w-4" />
             Bearbeiten
           </Button>
-          <Button onClick={handleSave} className="flex items-center gap-2">
-            <Save className="h-4 w-4" />
-            Speichern
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className={`flex items-center gap-2 transition-all duration-200 bg-black hover:bg-gray-800 text-white ${
+              saving ? "cursor-not-allowed opacity-75" : ""
+            }`}
+          >
+            {saving ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                Speichert...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                Speichern
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -862,23 +1184,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       </div>
 
-      <style jsx>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateX(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        
-        .animate-fade-in {
-          animation: fade-in 0.3s ease-out;
-        }
-      `}</style>
-
       {/* Category Tabs */}
       <Tabs value={activeCategory} onValueChange={setActiveCategory} className="w-full">
         <TabsList className="flex flex-wrap h-auto">
@@ -917,7 +1222,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               <Button
                 variant="outline"
                 size="icon"
-                className="h-8 w-8"
+                className="h-8 w-8 bg-transparent"
                 onClick={() => handleProductSelect(product.id, product.name, activeCategory, -1, product.unit)}
                 disabled={!productQuantities[product.name] || productQuantities[product.name] <= 0}
               >
@@ -940,7 +1245,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               <Button
                 variant="outline"
                 size="icon"
-                className="h-8 w-8"
+                className="h-8 w-8 bg-transparent"
                 onClick={() => handleProductSelect(product.id, product.name, activeCategory, 1, product.unit)}
               >
                 <span className="text-lg">+</span>
@@ -969,7 +1274,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-7 w-7"
+                          className="h-7 w-7 bg-transparent"
                           onClick={() => handleQuantityChange(product, details.quantity - 1)}
                         >
                           <span className="text-sm">-</span>
@@ -978,7 +1283,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-7 w-7"
+                          className="h-7 w-7 bg-transparent"
                           onClick={() => handleQuantityChange(product, details.quantity + 1)}
                         >
                           <span className="text-sm">+</span>
@@ -1033,8 +1338,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                     <thead>
                       <tr className="border-b">
                         <th className="text-left p-2">Zutat</th>
-                        <th className="text-left p-2">Gesamtmenge</th>
                         <th className="text-left p-2">Verpackung</th>
+                        <th className="text-left p-2">Gesamtmenge</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1043,11 +1348,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                         .map(([ingredient, details]) => (
                           <tr key={ingredient} className="border-b">
                             <td className="p-2">{ingredient}</td>
-                            <td className="p-2">{formatWeight(details.totalAmount, details.unit)}</td>
                             <td className="p-2">
                               {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
                               {formatWeight(details.amountPerPackage, details.unit)}
                             </td>
+                            <td className="p-2">{formatWeight(details.totalAmount, details.unit)}</td>
                           </tr>
                         ))}
                     </tbody>
@@ -1082,6 +1387,36 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <Button onClick={handleSaveAndGoBack} className="flex-1 text-sm px-2">
               Speichern & Zurück
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Print Preview Dialog */}
+      <Dialog open={isPrintPreviewOpen} onOpenChange={setIsPrintPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Druckvorschau - Packliste: {event?.name}</DialogTitle>
+            <DialogDescription>
+              Vorschau der Packliste. Sie können das Dokument drucken oder als PDF exportieren.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto border rounded-md bg-white">
+            {printPreviewContent && (
+              <iframe srcDoc={printPreviewContent} className="w-full h-96 border-0" title="Print Preview" />
+            )}
+          </div>
+
+          <DialogFooter className="flex justify-between">
+            <Button variant="outline" onClick={() => setIsPrintPreviewOpen(false)}>
+              Schließen
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleExportPdf}>
+                Als PDF exportieren
+              </Button>
+              <Button onClick={handlePrint}>Drucken</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
