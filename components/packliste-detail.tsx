@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle } from "lucide-react"
+import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle, Calendar } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -15,6 +15,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format } from "date-fns"
 import { de } from "date-fns/locale"
 import { unitPlurals } from "@/lib/data"
@@ -25,6 +27,7 @@ import { PacklisteSkeleton } from "@/components/packliste-skeleton"
 import type { SelectedProduct, EventDetails, CalculatedIngredient, Event } from "@/lib/types"
 import type { ProductWithCategory } from "@/lib/supabase-service"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 interface PacklisteDetailProps {
   eventId: string
@@ -87,6 +90,16 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   >({})
   const [searchTerm, setSearchTerm] = useState("")
 
+  // Edit form state
+  const [editForm, setEditForm] = useState({
+    name: "",
+    type: "",
+    date: "",
+    endDate: "",
+    ft: "",
+    ka: "",
+  })
+
   // Update finished status function
   const updateFinishedStatus = async (isFinished: boolean): Promise<boolean> => {
     try {
@@ -130,6 +143,16 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           })
           setEditDate(eventData.date ? new Date(eventData.date) : undefined)
           setEditEndDate(eventData.end_date ? new Date(eventData.end_date) : undefined)
+
+          // Set edit form initial values
+          setEditForm({
+            name: eventData.name || "",
+            type: eventData.type || "Catering",
+            date: eventData.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
+            endDate: eventData.end_date ? new Date(eventData.end_date).toISOString().split("T")[0] : "",
+            ft: eventData.ft || "",
+            ka: eventData.ka || "",
+          })
         }
 
         setCategories(categoriesData)
@@ -345,7 +368,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     }
   }
 
-  // Get the category background color
+  // Get the category background color (light version for unselected products)
   const getCategoryBackgroundColor = (categoryName: string) => {
     switch (categoryName) {
       case "Essen":
@@ -362,6 +385,26 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         return "bg-yellow-50 border-yellow-200 hover:bg-yellow-100"
       default:
         return "bg-gray-50 border-gray-200 hover:bg-gray-100"
+    }
+  }
+
+  // Get the stronger category background color for selected products
+  const getSelectedCategoryBackgroundColor = (categoryName: string) => {
+    switch (categoryName) {
+      case "Essen":
+        return "bg-orange-200 border-orange-400 hover:bg-orange-300 shadow-sm"
+      case "Getränke Pet":
+        return "bg-blue-200 border-blue-400 hover:bg-blue-300 shadow-sm"
+      case "Getränke Glas":
+        return "bg-cyan-200 border-cyan-400 hover:bg-cyan-300 shadow-sm"
+      case "Getränke Spezial":
+        return "bg-purple-200 border-purple-400 hover:bg-purple-300 shadow-sm"
+      case "Equipment":
+        return "bg-green-200 border-green-400 hover:bg-green-300 shadow-sm"
+      case "Kassa":
+        return "bg-yellow-200 border-yellow-400 hover:bg-yellow-300 shadow-sm"
+      default:
+        return "bg-gray-200 border-gray-400 hover:bg-gray-300 shadow-sm"
     }
   }
 
@@ -547,6 +590,17 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
   const handleEditEvent = () => {
     if (!event) return
+
+    // Reset form with current event data
+    setEditForm({
+      name: event.name || "",
+      type: event.type || "Catering",
+      date: event.date ? new Date(event.date).toISOString().split("T")[0] : "",
+      endDate: event.end_date ? new Date(event.end_date).toISOString().split("T")[0] : "",
+      ft: event.ft || "",
+      ka: event.ka || "",
+    })
+
     setIsEditDialogOpen(true)
   }
 
@@ -555,12 +609,12 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
     try {
       const updated = await updateEvent(eventId, {
-        name: event.name,
-        type: event.type,
-        date: editDate ? editDate.toISOString() : null,
-        end_date: editEndDate ? editEndDate.toISOString() : null,
-        ft: event.ft,
-        ka: event.ka,
+        name: editForm.name,
+        type: editForm.type,
+        date: editForm.date ? new Date(editForm.date).toISOString() : null,
+        end_date: editForm.endDate ? new Date(editForm.endDate).toISOString() : null,
+        ft: editForm.ft,
+        ka: editForm.ka,
       })
 
       if (updated) {
@@ -577,14 +631,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         setInitialEventDetails(newEventDetails)
         setIsEditDialogOpen(false)
         toast({
-          title: "Erfolg",
-          description: "Event wurde aktualisiert.",
+          title: "✅ Erfolg",
+          description: "Event wurde erfolgreich aktualisiert.",
         })
       }
     } catch (error) {
       console.error("Error updating event:", error)
       toast({
-        title: "Fehler",
+        title: "❌ Fehler",
         description: "Event konnte nicht aktualisiert werden.",
         variant: "destructive",
       })
@@ -973,7 +1027,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <FileDown className="h-4 w-4" />
             PDF Export
           </Button>
-          <Button variant="outline" onClick={() => setIsEditDialogOpen(true)} className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2 bg-transparent">
             <Edit className="h-4 w-4" />
             Bearbeiten
           </Button>
@@ -1209,50 +1263,73 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {filteredProducts().map((product) => (
-          <div
-            key={product.id}
-            className={`flex items-center justify-between p-3 border rounded-md h-[72px] ${getCategoryBackgroundColor(activeCategory)}`}
-          >
-            <div className="flex-1">
-              <p className="font-medium">{product.name}</p>
-              <p className="text-sm text-gray-500">{product.unit}</p>
+        {filteredProducts().map((product) => {
+          const isSelected = productQuantities[product.name] && productQuantities[product.name] > 0
+          const backgroundColorClass = isSelected
+            ? getSelectedCategoryBackgroundColor(activeCategory)
+            : getCategoryBackgroundColor(activeCategory)
+
+          return (
+            <div
+              key={product.id}
+              className={`flex items-center justify-between p-3 border rounded-md h-[72px] transition-all duration-200 ${backgroundColorClass}`}
+            >
+              <div className="flex-1">
+                <p className={`font-medium ${isSelected ? "font-semibold" : ""}`}>{product.name}</p>
+                <p className="text-sm text-gray-500">{product.unit}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-transparent"
+                  onClick={() => handleProductSelect(product.id, product.name, activeCategory, -1, product.unit)}
+                  disabled={!productQuantities[product.name] || productQuantities[product.name] <= 0}
+                >
+                  <span className="text-lg">-</span>
+                </Button>
+                <input
+                  type="number"
+                  min="0"
+                  value={productQuantities[product.name] || 0}
+                  placeholder=""
+                  onFocus={(e) => {
+                    // Clear the field if it shows 0
+                    if (e.target.value === "0") {
+                      e.target.value = ""
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // If field is empty on blur, set it back to 0
+                    if (e.target.value === "") {
+                      e.target.value = "0"
+                      handleDeleteProduct(product.name)
+                    }
+                  }}
+                  onChange={(e) => {
+                    const newQuantity = Number.parseInt(e.target.value) || 0
+                    if (newQuantity <= 0) {
+                      handleDeleteProduct(product.name)
+                    } else {
+                      handleProductSelect(product.id, product.name, activeCategory, newQuantity, product.unit, true)
+                    }
+                  }}
+                  className={`w-16 text-center border rounded py-1 px-2 h-8 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                    isSelected ? "font-semibold bg-white" : ""
+                  }`}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-transparent"
+                  onClick={() => handleProductSelect(product.id, product.name, activeCategory, 1, product.unit)}
+                >
+                  <span className="text-lg">+</span>
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 bg-transparent"
-                onClick={() => handleProductSelect(product.id, product.name, activeCategory, -1, product.unit)}
-                disabled={!productQuantities[product.name] || productQuantities[product.name] <= 0}
-              >
-                <span className="text-lg">-</span>
-              </Button>
-              <input
-                type="number"
-                min="0"
-                value={productQuantities[product.name] || 0}
-                onChange={(e) => {
-                  const newQuantity = Number.parseInt(e.target.value) || 0
-                  if (newQuantity <= 0) {
-                    handleDeleteProduct(product.name)
-                  } else {
-                    handleProductSelect(product.id, product.name, activeCategory, newQuantity, product.unit, true)
-                  }
-                }}
-                className="w-16 text-center border rounded py-1 px-2 h-8 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 bg-transparent"
-                onClick={() => handleProductSelect(product.id, product.name, activeCategory, 1, product.unit)}
-              >
-                <span className="text-lg">+</span>
-              </Button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Two-column layout for Selected Products and Ingredients */}
@@ -1363,6 +1440,189 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           </div>
         </div>
       </div>
+
+      {/* Edit Event Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Event bearbeiten
+            </DialogTitle>
+            <DialogDescription>Bearbeiten Sie die allgemeinen Informationen für dieses Event.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="edit-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                className="col-span-3"
+                placeholder="Event Name"
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-type" className="text-right">
+                Typ
+              </Label>
+              <Select value={editForm.type} onValueChange={(value) => setEditForm({ ...editForm, type: value })}>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Event Typ auswählen" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Catering">Catering</SelectItem>
+                  <SelectItem value="Verkauf">Verkauf</SelectItem>
+                  <SelectItem value="Sonstiges">Sonstiges</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-date" className="text-right">
+                Startdatum
+              </Label>
+              <Input
+                id="edit-date"
+                type="date"
+                value={editForm.date}
+                onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-end-date" className="text-right">
+                Enddatum
+              </Label>
+              <Input
+                id="edit-end-date"
+                type="date"
+                value={editForm.endDate}
+                onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-ft" className="text-right">
+                Foodtruck
+              </Label>
+              <div className="col-span-3">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
+                      {editForm.ft || "FT auswählen"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <div className="p-4 space-y-2">
+                      {["FT1", "FT2", "FT3", "FT4", "FT5", "Indoor"].map((ft) => {
+                        const currentFTs = editForm.ft ? editForm.ft.split(" & ") : []
+                        return (
+                          <div key={ft} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`edit-ft-${ft}`}
+                              checked={currentFTs.includes(ft)}
+                              onChange={(e) => {
+                                const currentFTs = editForm.ft ? editForm.ft.split(" & ") : []
+                                let newFTs
+                                if (e.target.checked) {
+                                  newFTs = [...currentFTs, ft]
+                                } else {
+                                  newFTs = currentFTs.filter((f) => f !== ft)
+                                }
+                                setEditForm({
+                                  ...editForm,
+                                  ft: newFTs.length > 0 ? newFTs.join(" & ") : "",
+                                })
+                              }}
+                            />
+                            <label htmlFor={`edit-ft-${ft}`}>{ft}</label>
+                          </div>
+                        )
+                      })}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditForm({ ...editForm, ft: "" })}
+                        className="w-full"
+                      >
+                        Alle abwählen
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-ka" className="text-right">
+                Kühlanhänger
+              </Label>
+              <div className="col-span-3">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
+                      {editForm.ka || "KA auswählen"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <div className="p-4 space-y-2">
+                      {["KA 1", "KA 2", "KA 3", "KA 4", "KA 5", "K-FZ"].map((ka) => {
+                        const currentKAs = editForm.ka ? editForm.ka.split(" & ") : []
+                        return (
+                          <div key={ka} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`edit-ka-${ka}`}
+                              checked={currentKAs.includes(ka)}
+                              onChange={(e) => {
+                                const currentKAs = editForm.ka ? editForm.ka.split(" & ") : []
+                                let newKAs
+                                if (e.target.checked) {
+                                  newKAs = [...currentKAs, ka]
+                                } else {
+                                  newKAs = currentKAs.filter((k) => k !== ka)
+                                }
+                                setEditForm({
+                                  ...editForm,
+                                  ka: newKAs.length > 0 ? newKAs.join(" & ") : "",
+                                })
+                              }}
+                            />
+                            <label htmlFor={`edit-ka-${ka}`}>{ka}</label>
+                          </div>
+                        )
+                      })}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditForm({ ...editForm, ka: "" })}
+                        className="w-full"
+                      >
+                        Alle abwählen
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Abbrechen
+            </Button>
+            <Button onClick={handleUpdateEvent}>Speichern</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Unsaved Changes Dialog */}
       <Dialog open={isUnsavedChangesDialogOpen} onOpenChange={setIsUnsavedChangesDialogOpen}>

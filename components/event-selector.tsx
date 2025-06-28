@@ -485,7 +485,7 @@ export function EventSelector() {
                   <Label htmlFor="ft">Foodtruck</Label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
                         {newEvent.ft.length > 0 ? newEvent.ft.join(" & ") : "FT auswählen"}
                       </Button>
                     </PopoverTrigger>
@@ -524,7 +524,7 @@ export function EventSelector() {
                   <Label htmlFor="ka">Kühlanhänger</Label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
                         {newEvent.ka.length > 0 ? newEvent.ka.join(" & ") : "KA auswählen"}
                       </Button>
                     </PopoverTrigger>
@@ -685,43 +685,109 @@ export function EventSelector() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-ft">Foodtruck</Label>
-                  <Select
-                    value={editingEvent.ft || "none"}
-                    onValueChange={(value) => setEditingEvent({ ...editingEvent, ft: value === "none" ? null : value })}
-                  >
-                    <SelectTrigger id="edit-ft">
-                      <SelectValue placeholder="FT auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">-</SelectItem>
-                      <SelectItem value="FT1">FT1</SelectItem>
-                      <SelectItem value="FT2">FT2</SelectItem>
-                      <SelectItem value="FT3">FT3</SelectItem>
-                      <SelectItem value="FT4">FT4</SelectItem>
-                      <SelectItem value="FT5">FT5</SelectItem>
-                      <SelectItem value="Indoor">Indoor</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
+                        {editingEvent?.ft ? editingEvent.ft : "FT auswählen"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0">
+                      <div className="p-4 space-y-2">
+                        {["FT1", "FT2", "FT3", "FT4", "FT5", "Indoor"].map((ft) => {
+                          const currentFTs = editingEvent?.ft ? editingEvent.ft.split(" & ") : []
+                          return (
+                            <div key={ft} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`edit-ft-${ft}`}
+                                checked={currentFTs.includes(ft)}
+                                onChange={(e) => {
+                                  if (!editingEvent) return
+                                  const currentFTs = editingEvent.ft ? editingEvent.ft.split(" & ") : []
+                                  let newFTs
+                                  if (e.target.checked) {
+                                    newFTs = [...currentFTs, ft]
+                                  } else {
+                                    newFTs = currentFTs.filter((f) => f !== ft)
+                                  }
+                                  setEditingEvent({
+                                    ...editingEvent,
+                                    ft: newFTs.length > 0 ? newFTs.join(" & ") : null,
+                                  })
+                                }}
+                              />
+                              <label htmlFor={`edit-ft-${ft}`}>{ft}</label>
+                            </div>
+                          )
+                        })}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (editingEvent) {
+                              setEditingEvent({ ...editingEvent, ft: null })
+                            }
+                          }}
+                          className="w-full"
+                        >
+                          Alle abwählen
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-ka">Kühlanhänger</Label>
-                  <Select
-                    value={editingEvent.ka || "none"}
-                    onValueChange={(value) => setEditingEvent({ ...editingEvent, ka: value === "none" ? null : value })}
-                  >
-                    <SelectTrigger id="edit-ka">
-                      <SelectValue placeholder="KA auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">-</SelectItem>
-                      <SelectItem value="KA 1">KA 1</SelectItem>
-                      <SelectItem value="KA 2">KA 2</SelectItem>
-                      <SelectItem value="KA 3">KA 3</SelectItem>
-                      <SelectItem value="KA 4">KA 4</SelectItem>
-                      <SelectItem value="KA 5">KA 5</SelectItem>
-                      <SelectItem value="K-FZ">K-FZ</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
+                        {editingEvent?.ka ? editingEvent.ka : "KA auswählen"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0">
+                      <div className="p-4 space-y-2">
+                        {["KA 1", "KA 2", "KA 3", "KA 4", "KA 5", "K-FZ"].map((ka) => {
+                          const currentKAs = editingEvent?.ka ? editingEvent.ka.split(" & ") : []
+                          return (
+                            <div key={ka} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`edit-ka-${ka}`}
+                                checked={currentKAs.includes(ka)}
+                                onChange={(e) => {
+                                  if (!editingEvent) return
+                                  const currentKAs = editingEvent.ka ? editingEvent.ka.split(" & ") : []
+                                  let newKAs
+                                  if (e.target.checked) {
+                                    newKAs = [...currentKAs, ka]
+                                  } else {
+                                    newKAs = currentKAs.filter((k) => k !== ka)
+                                  }
+                                  setEditingEvent({
+                                    ...editingEvent,
+                                    ka: newKAs.length > 0 ? newKAs.join(" & ") : null,
+                                  })
+                                }}
+                              />
+                              <label htmlFor={`edit-ka-${ka}`}>{ka}</label>
+                            </div>
+                          )
+                        })}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (editingEvent) {
+                              setEditingEvent({ ...editingEvent, ka: null })
+                            }
+                          }}
+                          className="w-full"
+                        >
+                          Alle abwählen
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
               <div className="space-y-2">
