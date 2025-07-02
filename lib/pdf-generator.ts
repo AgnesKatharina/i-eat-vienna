@@ -1,6 +1,6 @@
 "use client"
 
-import { jsPDF } from "jspdf"
+import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import type { SelectedProduct, CalculatedIngredient, EventDetails } from "@/lib/types"
 
