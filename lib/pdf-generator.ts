@@ -32,7 +32,7 @@ class CustomTable {
     this.currentY = startY
     this.pageHeight = doc.internal.pageSize.getHeight()
     this.margin = 20
-    this.rowHeight = 8
+    this.rowHeight = 10 // Increased row height for better alignment
     this.headerHeight = 10
   }
 
@@ -91,19 +91,28 @@ class CustomTable {
 
     // Row text
     this.doc.setFont("helvetica", "normal")
-    this.doc.setFontSize(9)
+    this.doc.setFontSize(12) // Increased font size for ingredient values
     this.doc.setTextColor(0, 0, 0)
 
     this.columns.forEach((column, index) => {
       const text = row[index.toString()] || ""
-      const textY = this.currentY + this.rowHeight / 2 + 2
+      const textY = this.currentY + this.rowHeight / 2 + 3 // Better vertical centering
 
-      if (column.align === "center") {
-        this.doc.text(text, currentX + column.width / 2, textY, { align: "center" })
-      } else if (column.align === "right") {
-        this.doc.text(text, currentX + column.width - 2, textY, { align: "right" })
+      if (index === 0) {
+        // Checkbox column - draw checkbox centered
+        const checkboxSize = 3
+        const checkboxX = currentX + (column.width - checkboxSize) / 2
+        const checkboxY = this.currentY + (this.rowHeight - checkboxSize) / 2
+        this.doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
       } else {
-        this.doc.text(text, currentX + 2, textY)
+        // Text columns
+        if (column.align === "center") {
+          this.doc.text(text, currentX + column.width / 2, textY, { align: "center" })
+        } else if (column.align === "right") {
+          this.doc.text(text, currentX + column.width - 2, textY, { align: "right" })
+        } else {
+          this.doc.text(text, currentX + 2, textY)
+        }
       }
 
       // Column separator
@@ -124,6 +133,8 @@ class CustomTable {
   private checkPageBreak(): boolean {
     if (this.currentY + this.rowHeight > this.pageHeight - 30) {
       this.doc.addPage()
+      this.drawHeader()
+      this.drawFooter()
       this.currentY = 30
       this.drawHeader()
       return true
@@ -160,7 +171,7 @@ export async function generatePdf(
 
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
-  let pageNumber = 1
+  let currentPageNumber = 1
 
   const getTitle = () => {
     switch (mode) {
@@ -178,10 +189,22 @@ export async function generatePdf(
   const drawHeader = () => {
     doc.setFontSize(10)
     doc.setTextColor(128, 128, 128)
-    let headerText = `${eventDetails.type} | ${eventDetails.name} | ${eventDetails.date || "Kein Datum"}`
+    let headerText = `${eventDetails.type} | ${eventDetails.name}`
+
+    // Add start date
+    if (eventDetails.date) {
+      headerText += ` | ${eventDetails.date}`
+
+      // Add end date if it exists and is different from start date
+      if (eventDetails.endDate && eventDetails.endDate !== eventDetails.date && eventDetails.endDate.trim() !== "") {
+        headerText += ` - ${eventDetails.endDate}`
+      }
+    }
+
     if (eventDetails.ft && eventDetails.ft !== "none") headerText += ` | ${eventDetails.ft}`
     if (eventDetails.ka && eventDetails.ka !== "none") headerText += ` | ${eventDetails.ka}`
     if (mode === "bestellung" && eventDetails.supplierName) headerText += ` | Mitarbeiter: ${eventDetails.supplierName}`
+
     doc.text(headerText, 20, 12)
     doc.line(20, 15, pageWidth - 20, 15)
   }
@@ -189,13 +212,58 @@ export async function generatePdf(
   const drawFooter = () => {
     doc.setFontSize(10)
     doc.setTextColor(128, 128, 128)
-    const footerText = `${eventDetails.type} | ${eventDetails.name} | ${eventDetails.date || "Kein Datum"}`
+    let footerText = `${eventDetails.type} | ${eventDetails.name}`
+
+    // Add start date
+    if (eventDetails.date) {
+      footerText += ` | ${eventDetails.date}`
+
+      // Add end date if it exists and is different from start date
+      if (eventDetails.endDate && eventDetails.endDate !== eventDetails.date && eventDetails.endDate.trim() !== "") {
+        footerText += ` - ${eventDetails.endDate}`
+      }
+    }
+
     doc.text(footerText, 20, pageHeight - 10)
-    doc.text(`Seite ${pageNumber}`, pageWidth - 35, pageHeight - 10)
+    doc.text(`Seite ${currentPageNumber}`, pageWidth - 35, pageHeight - 10)
     doc.line(20, pageHeight - 15, pageWidth - 20, pageHeight - 15)
   }
 
+  const drawSignatureSection = () => {
+    const signatureY = pageHeight - 50
+    const signatureHeight = 25
+    const signatureWidth = pageWidth - 40
+
+    // Draw signature box
+    doc.setDrawColor(0, 0, 0)
+    doc.rect(20, signatureY, signatureWidth, signatureHeight)
+
+    // Set text properties
+    doc.setFontSize(10)
+    doc.setTextColor(0, 0, 0)
+    doc.setFont("helvetica", "normal")
+
+    // Left side - "Erledigt von:"
+    const leftText = "Erledigt von:"
+    const leftLineStart = 20 + doc.getTextWidth(leftText) + 5
+    const leftLineEnd = pageWidth / 2 - 10
+
+    doc.text(leftText, 25, signatureY + 15)
+    doc.line(leftLineStart, signatureY + 15, leftLineEnd, signatureY + 15)
+
+    // Right side - "Datum & Uhrzeit:"
+    const rightText = "Datum & Uhrzeit:"
+    const rightTextStart = pageWidth / 2 + 10
+    const rightLineStart = rightTextStart + doc.getTextWidth(rightText) + 5
+    const rightLineEnd = pageWidth - 25
+
+    doc.text(rightText, rightTextStart, signatureY + 15)
+    doc.line(rightLineStart, signatureY + 15, rightLineEnd, signatureY + 15)
+  }
+
+  // Draw header and footer on first page
   drawHeader()
+  drawFooter()
   doc.setTextColor(0, 0, 0)
 
   doc.setFontSize(14)
@@ -237,10 +305,13 @@ export async function generatePdf(
   // Draw products in columns
   for (let productIndex = 0; productIndex < maxProductsInCategory; productIndex++) {
     if (yPosition > maxYPosition) {
-      drawFooter()
+      // Add new page
       doc.addPage()
-      pageNumber++
+      currentPageNumber++
+
+      // Draw header and footer on new page
       drawHeader()
+      drawFooter()
       doc.setTextColor(0, 0, 0)
       yPosition = 35
 
@@ -288,10 +359,12 @@ export async function generatePdf(
 
   // Add ingredients table if available
   if (Object.keys(calculatedIngredients).length > 0) {
-    drawFooter()
     doc.addPage()
-    pageNumber++
+    currentPageNumber++
+
+    // Draw header and footer on ingredients page
     drawHeader()
+    drawFooter()
     doc.setTextColor(0, 0, 0)
 
     doc.setFontSize(14)
@@ -301,7 +374,7 @@ export async function generatePdf(
 
     // Prepare table data
     const sortedIngredients = Object.entries(calculatedIngredients).sort(([a], [b]) => a.localeCompare(b))
-    const tableRows: TableRow[] = sortedIngredients.map(([ingredient, details], index) => {
+    const tableRows: TableRow[] = sortedIngredients.map(([ingredient, details]) => {
       const packagingText = `${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}`
       const totalText = formatWeight(details.totalAmount, details.unit)
 
@@ -316,42 +389,201 @@ export async function generatePdf(
     const tableColumns: TableColumn[] = [
       { header: "", width: 15, align: "center" },
       { header: "Zutat", width: 80, align: "left" },
-      { header: "Verpackung", width: 120, align: "left" },
-      { header: "Gesamtmenge", width: 50, align: "right" },
+      { header: "Gesamtmenge", width: 120, align: "left" },
+      { header: "Benötigte Menge", width: 50, align: "right" },
     ]
 
-    const table = new CustomTable(doc, tableColumns, tableRows, 35)
-    table.render()
+    // Custom table rendering with proper page breaks
+    let currentY = 35
+    const rowHeight = 10
+    const headerHeight = 10
 
-    // Draw checkboxes in the first column
-    let checkboxY = 45 // Start after header
-    sortedIngredients.forEach(() => {
-      doc.rect(25, checkboxY - 2, 3, 3)
-      checkboxY += 8
+    // Draw table header
+    const startX = 20
+    let currentX = startX
+
+    // Header background
+    doc.setFillColor(230, 230, 230)
+    doc.rect(
+      startX,
+      currentY,
+      tableColumns.reduce((sum, col) => sum + col.width, 0),
+      headerHeight,
+      "F",
+    )
+
+    // Header border
+    doc.setDrawColor(0, 0, 0)
+    doc.rect(
+      startX,
+      currentY,
+      tableColumns.reduce((sum, col) => sum + col.width, 0),
+      headerHeight,
+    )
+
+    // Header text
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(10)
+    doc.setTextColor(0, 0, 0)
+
+    tableColumns.forEach((column) => {
+      const textY = currentY + headerHeight / 2 + 2
+
+      if (column.align === "center") {
+        doc.text(column.header, currentX + column.width / 2, textY, { align: "center" })
+      } else if (column.align === "right") {
+        doc.text(column.header, currentX + column.width - 2, textY, { align: "right" })
+      } else {
+        doc.text(column.header, currentX + 2, textY)
+      }
+
+      // Column separator
+      if (currentX > startX) {
+        doc.line(currentX, currentY, currentX, currentY + headerHeight)
+      }
+
+      currentX += column.width
     })
-  } else {
-    drawFooter()
+
+    currentY += headerHeight
+
+    // Draw table rows
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(12)
+
+    tableRows.forEach((row, rowIndex) => {
+      // Check if we need a new page
+      if (currentY + rowHeight > pageHeight - 25) {
+        doc.addPage()
+        currentPageNumber++
+
+        // Draw header and footer on new page
+        drawHeader()
+        drawFooter()
+        doc.setTextColor(0, 0, 0)
+        currentY = 35
+
+        // Redraw table header
+        currentX = startX
+        doc.setFillColor(230, 230, 230)
+        doc.rect(
+          startX,
+          currentY,
+          tableColumns.reduce((sum, col) => sum + col.width, 0),
+          headerHeight,
+          "F",
+        )
+        doc.setDrawColor(0, 0, 0)
+        doc.rect(
+          startX,
+          currentY,
+          tableColumns.reduce((sum, col) => sum + col.width, 0),
+          headerHeight,
+        )
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(10)
+
+        tableColumns.forEach((column) => {
+          const textY = currentY + headerHeight / 2 + 2
+          if (column.align === "center") {
+            doc.text(column.header, currentX + column.width / 2, textY, { align: "center" })
+          } else if (column.align === "right") {
+            doc.text(column.header, currentX + column.width - 2, textY, { align: "right" })
+          } else {
+            doc.text(column.header, currentX + 2, textY)
+          }
+          if (currentX > startX) {
+            doc.line(currentX, currentY, currentX, currentY + headerHeight)
+          }
+          currentX += column.width
+        })
+        currentY += headerHeight
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(12)
+      }
+
+      // Draw row
+      currentX = startX
+
+      // Alternate row background
+      if (rowIndex % 2 === 0) {
+        doc.setFillColor(245, 245, 245)
+        doc.rect(
+          startX,
+          currentY,
+          tableColumns.reduce((sum, col) => sum + col.width, 0),
+          rowHeight,
+          "F",
+        )
+      }
+
+      // Row border
+      doc.setDrawColor(200, 200, 200)
+      doc.rect(
+        startX,
+        currentY,
+        tableColumns.reduce((sum, col) => sum + col.width, 0),
+        rowHeight,
+      )
+
+      tableColumns.forEach((column, colIndex) => {
+        const text = row[colIndex.toString()] || ""
+        const textY = currentY + rowHeight / 2 + 3
+
+        if (colIndex === 0) {
+          // Checkbox column
+          const checkboxSize = 3
+          const checkboxX = currentX + (column.width - checkboxSize) / 2
+          const checkboxY = currentY + (rowHeight - checkboxSize) / 2
+          doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
+        } else {
+          // Text columns
+          if (column.align === "center") {
+            doc.text(text, currentX + column.width / 2, textY, { align: "center" })
+          } else if (column.align === "right") {
+            doc.text(text, currentX + column.width - 2, textY, { align: "right" })
+          } else {
+            doc.text(text, currentX + 2, textY)
+          }
+        }
+
+        // Column separator
+        if (currentX > startX) {
+          doc.line(currentX, currentY, currentX, currentY + rowHeight)
+        }
+
+        currentX += column.width
+      })
+
+      currentY += rowHeight
+    })
   }
 
   // Generate filename
   let fileName = ""
-  if (mode === "packliste" && eventDetails.date) {
-    try {
-      const dateParts = eventDetails.date.split(".")
-      if (dateParts.length === 3) {
-        const [day, month, year] = dateParts
-        fileName = `${year}-${month}-${day}_${eventDetails.name || "Packliste"}`
-      } else {
-        fileName = `${eventDetails.date}_${eventDetails.name || "Packliste"}`
+  if (mode === "packliste") {
+    const eventName = eventDetails.name ? eventDetails.name.replace(/[^a-zA-Z0-9]/g, "_") : "Event"
+
+    if (eventDetails.date) {
+      // Convert date from DD.MM.YYYY to DD-MM-YYYY format
+      let dateForFilename = eventDetails.date
+      if (eventDetails.date.includes(".")) {
+        const dateParts = eventDetails.date.split(".")
+        if (dateParts.length === 3) {
+          dateForFilename = `${dateParts[0]}-${dateParts[1]}-${dateParts[2]}`
+        }
       }
-    } catch (error) {
-      fileName = `${eventDetails.date}_${eventDetails.name || "Packliste"}`
+      fileName = `Packliste_${eventName}_${dateForFilename}`
+    } else {
+      fileName = `Packliste_${eventName}_Kein-Datum`
     }
   } else if (mode === "bestellung" && eventDetails.supplierName) {
     fileName = `Bestellung_${eventDetails.supplierName}_${eventDetails.date || "Kein-Datum"}`
   } else {
     fileName = `${getTitle()}_${eventDetails.name || "Dokument"}_${eventDetails.date || "Kein-Datum"}`
   }
+
+  // Clean filename
   fileName = fileName.replace(/\s+/g, "_").replace(/[^\w\-.]/g, "")
 
   // Set document properties
@@ -362,6 +594,9 @@ export async function generatePdf(
     keywords: `${getTitle()}, ${eventDetails.type}, ${eventDetails.name}`,
     creator: "I Eat Vienna App",
   })
+
+  // Add signature section to the last page
+  drawSignatureSection()
 
   // Save the PDF
   doc.save(`${fileName}.pdf`)

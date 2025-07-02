@@ -649,13 +649,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     if (!event) return
 
     try {
-      // Create the print preview content
+      // Create the print preview content including end date
       const currentEventDetails: EventDetails = {
         type: event.type || "Catering",
         name: event.name || "",
         ft: event.ft || "",
         ka: event.ka || "",
         date: event.date ? format(new Date(event.date), "dd.MM.yyyy", { locale: de }) : "",
+        endDate: event.end_date ? format(new Date(event.end_date), "dd.MM.yyyy", { locale: de }) : "",
         supplierName: "",
       }
 
@@ -685,13 +686,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     if (!event) return
 
     try {
-      // Update eventDetails with current event data
+      // Update eventDetails with current event data including end date
       const currentEventDetails: EventDetails = {
         type: event.type || "Catering",
         name: event.name || "",
         ft: event.ft || "",
         ka: event.ka || "",
         date: event.date ? format(new Date(event.date), "dd.MM.yyyy", { locale: de }) : "",
+        endDate: event.end_date ? format(new Date(event.end_date), "dd.MM.yyyy", { locale: de }) : "",
         supplierName: "",
       }
 
@@ -827,12 +829,39 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           .ingredients-table th,
           .ingredients-table td {
             border: 1px solid #e5e5e5;
-            padding: 6px;
+            padding: 10px;
             text-align: left;
+            vertical-align: middle;
+            height: 40px;
           }
           .ingredients-table th {
             background-color: #f5f5f5;
             font-weight: bold;
+            font-size: 12px;
+          }
+          .ingredients-table .checkbox-cell {
+            width: 30px;
+            text-align: center;
+            padding: 10px 5px;
+          }
+          .ingredients-table .checkbox-cell .checkbox {
+            width: 14px;
+            height: 14px;
+            border: 1px solid #333;
+            margin: 0 auto;
+            display: block;
+          }
+          .ingredients-table .ingredient-name {
+            font-size: 14px;
+            font-weight: normal;
+          }
+          .ingredients-table .total-amount {
+            font-size: 14px;
+            font-weight: normal;
+          }
+          .ingredients-table .required-amount {
+            font-size: 14px;
+            font-weight: normal;
           }
           .signature-box {
             margin-top: 30px;
@@ -894,10 +923,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           <table class="ingredients-table">
             <thead>
               <tr>
-                <th style="width: 20px;"></th>
+                <th class="checkbox-cell"></th>
                 <th>Zutat</th>
-                <th>Verpackung</th>
                 <th>Gesamtmenge</th>
+                <th>Benötigte Menge</th>
               </tr>
             </thead>
             <tbody>
@@ -908,10 +937,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         .forEach(([ingredient, details]) => {
           html += `
               <tr>
-                <td><div class="checkbox"></div></td>
-                <td>${ingredient}</td>
-                <td>${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
-                <td>${formatWeight(details.totalAmount, details.unit)}</td>
+                <td class="checkbox-cell"><div class="checkbox"></div></td>
+                <td class="ingredient-name">${ingredient}</td>
+                <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
+                <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
               </tr>
           `
         })
@@ -1414,9 +1443,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b">
+                        <th className="text-left p-2 w-8"></th>
                         <th className="text-left p-2">Zutat</th>
-                        <th className="text-left p-2">Verpackung</th>
                         <th className="text-left p-2">Gesamtmenge</th>
+                        <th className="text-left p-2">Benötigte Menge</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1424,12 +1454,15 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                         .sort(([a], [b]) => a.localeCompare(b))
                         .map(([ingredient, details]) => (
                           <tr key={ingredient} className="border-b">
-                            <td className="p-2">{ingredient}</td>
-                            <td className="p-2">
+                            <td className="p-2 text-center">
+                              <div className="w-4 h-4 border border-gray-400 rounded-sm mx-auto"></div>
+                            </td>
+                            <td className="p-2 text-base font-medium">{ingredient}</td>
+                            <td className="p-2 text-base font-medium">
                               {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
                               {formatWeight(details.amountPerPackage, details.unit)}
                             </td>
-                            <td className="p-2">{formatWeight(details.totalAmount, details.unit)}</td>
+                            <td className="p-2 text-base">{formatWeight(details.totalAmount, details.unit)}</td>
                           </tr>
                         ))}
                     </tbody>
