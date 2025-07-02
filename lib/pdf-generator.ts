@@ -1,5 +1,8 @@
-import jsPDF from "jspdf"
-import type { SelectedProduct, EventDetails, CalculatedIngredient } from "./types"
+"use client"
+
+import { jsPDF } from "jspdf"
+import autoTable from "jspdf-autotable"
+import type { SelectedProduct, CalculatedIngredient, EventDetails } from "@/lib/types"
 
 export async function generatePdf(
   selectedProducts: Record<string, SelectedProduct>,
@@ -10,216 +13,208 @@ export async function generatePdf(
   mode = "packliste",
   productCategories: Record<string, string> = {},
 ) {
-  const pdf = new jsPDF()
-  const pageWidth = pdf.internal.pageSize.getWidth()
-  const pageHeight = pdf.internal.pageSize.getHeight()
-  const margin = 20
-  const contentWidth = pageWidth - 2 * margin
-  let yPosition = margin
+  const doc = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+  })
 
-  // Helper function to add text with automatic line wrapping
-  const addText = (text: string, x: number, y: number, maxWidth?: number) => {
-    if (maxWidth) {
-      const lines = pdf.splitTextToSize(text, maxWidth)
-      pdf.text(lines, x, y)
-      return y + lines.length * 7
-    } else {
-      pdf.text(text, x, y)
-      return y + 7
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  let pageNumber = 1
+
+  const getTitle = () => {
+    switch (mode) {
+      case "packliste":
+        return "Packliste"
+      case "einkaufen":
+        return "Einkaufsliste"
+      case "bestellung":
+        return "Bestellung"
+      default:
+        return "Packliste"
     }
   }
 
-  // Helper function to check if we need a new page
-  const checkNewPage = (requiredHeight: number) => {
-    if (yPosition + requiredHeight > pageHeight - margin) {
-      pdf.addPage()
-      yPosition = margin
-      return true
-    }
-    return false
+  const drawHeader = () => {
+    doc.setFontSize(10)
+    doc.setTextColor(128, 128, 128)
+    let headerText = `${eventDetails.type} | ${eventDetails.name} | ${eventDetails.date || "Kein Datum"}`
+    if (eventDetails.ft && eventDetails.ft !== "none") headerText += ` | ${eventDetails.ft}`
+    if (eventDetails.ka && eventDetails.ka !== "none") headerText += ` | ${eventDetails.ka}`
+    if (mode === "bestellung" && eventDetails.supplierName) headerText += ` | Mitarbeiter: ${eventDetails.supplierName}`
+    doc.text(headerText, 20, 12)
+    doc.line(20, 15, pageWidth - 20, 15)
   }
 
-  // Title
-  pdf.setFontSize(18)
-  pdf.setFont("helvetica", "bold")
-  yPosition = addText(`Packliste: ${eventDetails.name}`, margin, yPosition)
-  yPosition += 5
+  const drawFooter = () => {
+    doc.setFontSize(10)
+    doc.setTextColor(128, 128, 128)
+    const footerText = `${eventDetails.type} | ${eventDetails.name} | ${eventDetails.date || "Kein Datum"}`
+    doc.text(footerText, 20, pageHeight - 10)
+    doc.text(`Seite ${pageNumber}`, pageWidth - 35, pageHeight - 10)
+    doc.line(20, pageHeight - 15, pageWidth - 20, pageHeight - 15)
+  }
 
-  // Event details
-  pdf.setFontSize(12)
-  pdf.setFont("helvetica", "normal")
-  const eventInfo = [
-    eventDetails.type,
-    eventDetails.date || "Kein Datum",
-    eventDetails.ft ? eventDetails.ft : null,
-    eventDetails.ka ? eventDetails.ka : null,
-  ]
-    .filter(Boolean)
-    .join(" | ")
+  drawHeader()
+  doc.setTextColor(0, 0, 0)
 
-  yPosition = addText(eventInfo, margin, yPosition)
-  yPosition += 10
+  doc.setFontSize(14)
+  doc.setFont("helvetica", "bold")
+  const titleText = `${getTitle()}: ${eventDetails.name}`
+  doc.text(titleText, 20, 25)
+  doc.line(20, 28, pageWidth - 20, 28)
 
-  // Draw line under header
-  pdf.setLineWidth(0.5)
-  pdf.line(margin, yPosition, pageWidth - margin, yPosition)
-  yPosition += 15
-
-  // Group products by category
   const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> = {}
-
   Object.entries(selectedProducts).forEach(([productName, details]) => {
     const category = productCategories[productName] || "Sonstige"
-    if (!productsByCategory[category]) {
-      productsByCategory[category] = []
-    }
-    productsByCategory[category].push({
-      name: productName,
-      quantity: details.quantity,
-      unit: details.unit,
-    })
+    if (!productsByCategory[category]) productsByCategory[category] = []
+    productsByCategory[category].push({ name: productName, quantity: details.quantity, unit: details.unit })
   })
 
-  // Sort categories
   const sortedCategories = Object.keys(productsByCategory).sort()
+  const numCategories = sortedCategories.length
+  const maxColumns = Math.min(numCategories, 6)
+  const columnWidth = (pageWidth - 40) / maxColumns
+  const xPositions = Array.from({ length: maxColumns }, (_, i) => 20 + i * columnWidth)
+  let yPosition = 35
 
-  // Products section
-  pdf.setFontSize(14)
-  pdf.setFont("helvetica", "bold")
-  yPosition = addText("Produkte", margin, yPosition)
-  yPosition += 10
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(12)
+  for (let i = 0; i < maxColumns; i++) {
+    if (i < sortedCategories.length) doc.text(sortedCategories[i], xPositions[i], yPosition)
+  }
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(9)
+  yPosition += 8
 
-  // Calculate grid layout
-  const categoriesPerRow = 3
-  const categoryWidth = contentWidth / categoriesPerRow
-  const categoryHeight = 80
+  const maxYPosition = pageHeight - 25
+  const maxProductsInCategory = Math.max(0, ...sortedCategories.map((cat) => productsByCategory[cat].length))
 
-  let currentRow = 0
-  let currentCol = 0
-
-  sortedCategories.forEach((category, index) => {
-    const products = productsByCategory[category].sort((a, b) => a.name.localeCompare(b.name))
-
-    // Check if we need a new page
-    if (currentCol === 0) {
-      checkNewPage(categoryHeight + 20)
-    }
-
-    const xPos = margin + currentCol * categoryWidth
-    const yPos = yPosition + currentRow * categoryHeight
-
-    // Category title
-    pdf.setFontSize(12)
-    pdf.setFont("helvetica", "bold")
-    pdf.text(category, xPos, yPos)
-
-    // Draw line under category title
-    pdf.setLineWidth(0.3)
-    pdf.line(xPos, yPos + 2, xPos + categoryWidth - 10, yPos + 2)
-
-    // Products in category
-    pdf.setFontSize(10)
-    pdf.setFont("helvetica", "normal")
-    let productY = yPos + 10
-
-    products.forEach((product) => {
-      if (productY < yPos + categoryHeight - 10) {
-        // Draw checkbox
-        pdf.rect(xPos, productY - 3, 3, 3)
-
-        // Product text
-        const productText = `${product.quantity}x ${product.name}`
-        pdf.text(productText, xPos + 6, productY, { maxWidth: categoryWidth - 20 })
-        productY += 6
+  for (let productIndex = 0; productIndex < maxProductsInCategory; productIndex++) {
+    if (yPosition > maxYPosition) {
+      drawFooter()
+      doc.addPage()
+      pageNumber++
+      drawHeader()
+      doc.setTextColor(0, 0, 0)
+      yPosition = 35
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(12)
+      for (let i = 0; i < maxColumns; i++) {
+        if (i < sortedCategories.length) doc.text(sortedCategories[i], xPositions[i], yPosition)
       }
-    })
-
-    // Move to next column/row
-    currentCol++
-    if (currentCol >= categoriesPerRow) {
-      currentCol = 0
-      currentRow++
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(9)
+      yPosition += 8
     }
-  })
 
-  // Move yPosition after the grid
-  yPosition += Math.ceil(sortedCategories.length / categoriesPerRow) * categoryHeight + 20
-
-  // Ingredients section
-  if (Object.keys(calculatedIngredients).length > 0) {
-    checkNewPage(100)
-
-    pdf.setFontSize(14)
-    pdf.setFont("helvetica", "bold")
-    yPosition = addText("Zutaten", margin, yPosition)
-    yPosition += 10
-
-    // Table headers
-    pdf.setFontSize(10)
-    pdf.setFont("helvetica", "bold")
-    const colWidths = [20, 80, 60, 60]
-    const colPositions = [
-      margin,
-      margin + colWidths[0],
-      margin + colWidths[0] + colWidths[1],
-      margin + colWidths[0] + colWidths[1] + colWidths[2],
-    ]
-
-    // Header row
-    pdf.rect(colPositions[0], yPosition - 5, colWidths[0], 8)
-    pdf.rect(colPositions[1], yPosition - 5, colWidths[1], 8)
-    pdf.rect(colPositions[2], yPosition - 5, colWidths[2], 8)
-    pdf.rect(colPositions[3], yPosition - 5, colWidths[3], 8)
-
-    pdf.text("", colPositions[0] + 2, yPosition)
-    pdf.text("Zutat", colPositions[1] + 2, yPosition)
-    pdf.text("Verpackung", colPositions[2] + 2, yPosition)
-    pdf.text("Gesamtmenge", colPositions[3] + 2, yPosition)
-    yPosition += 10
-
-    // Table rows
-    pdf.setFont("helvetica", "normal")
-    Object.entries(calculatedIngredients)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .forEach(([ingredient, details]) => {
-        checkNewPage(15)
-
-        // Draw table borders
-        pdf.rect(colPositions[0], yPosition - 5, colWidths[0], 8)
-        pdf.rect(colPositions[1], yPosition - 5, colWidths[1], 8)
-        pdf.rect(colPositions[2], yPosition - 5, colWidths[2], 8)
-        pdf.rect(colPositions[3], yPosition - 5, colWidths[3], 8)
-
-        // Checkbox
-        pdf.rect(colPositions[0] + 2, yPosition - 3, 3, 3)
-
-        // Content
-        pdf.text(ingredient, colPositions[1] + 2, yPosition, { maxWidth: colWidths[1] - 4 })
-
-        const packagingText = `${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}`
-        pdf.text(packagingText, colPositions[2] + 2, yPosition, { maxWidth: colWidths[2] - 4 })
-
-        pdf.text(formatWeight(details.totalAmount, details.unit), colPositions[3] + 2, yPosition, {
-          maxWidth: colWidths[3] - 4,
-        })
-
-        yPosition += 10
-      })
+    for (let colIndex = 0; colIndex < maxColumns && colIndex < sortedCategories.length; colIndex++) {
+      const category = sortedCategories[colIndex]
+      const products = productsByCategory[category].sort((a, b) => a.name.localeCompare(b.name))
+      if (productIndex < products.length) {
+        const product = products[productIndex]
+        doc.rect(xPositions[colIndex], yPosition - 3, 3, 3)
+        const productText = `${product.quantity}x ${product.name}`
+        const maxTextWidth = columnWidth - 8
+        let displayText = productText
+        if (doc.getTextWidth(displayText) > maxTextWidth) {
+          while (doc.getTextWidth(displayText + "...") > maxTextWidth && displayText.length > 10) {
+            displayText = displayText.slice(0, -1)
+          }
+          displayText += "..."
+        }
+        doc.text(displayText, xPositions[colIndex] + 5, yPosition)
+      }
+    }
+    yPosition += 6
   }
 
-  // Signature box
-  yPosition += 20
-  checkNewPage(40)
+  if (Object.keys(calculatedIngredients).length > 0) {
+    drawFooter()
+    doc.addPage()
+    pageNumber++
+    drawHeader()
+    doc.setTextColor(0, 0, 0)
 
-  pdf.setLineWidth(0.5)
-  pdf.rect(margin, yPosition, contentWidth, 30)
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("Zutaten", 20, 25)
+    doc.line(20, 28, pageWidth - 20, 28)
 
-  pdf.setFontSize(10)
-  pdf.setFont("helvetica", "normal")
-  pdf.text("Erledigt von: ______________________", margin + 5, yPosition + 15)
-  pdf.text("Datum & Uhrzeit: _____________________", margin + contentWidth / 2, yPosition + 15)
+    const sortedIngredients = Object.entries(calculatedIngredients).sort(([a], [b]) => a.localeCompare(b))
+    const tableData = sortedIngredients.map(([ingredient, details]) => {
+      const packagingText = `${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}`
+      const totalText = formatWeight(details.totalAmount, details.unit)
+      return ["", ingredient, packagingText, totalText]
+    })
 
-  // Save the PDF
-  const fileName = `Packliste_${eventDetails.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`
-  pdf.save(fileName)
+    autoTable(doc, {
+      startY: 35,
+      head: [["", "Zutat", "Verpackung", "Gesamtmenge"]],
+      body: tableData,
+      theme: "grid",
+      margin: { left: 20, right: 20 },
+      headStyles: {
+        fillColor: [230, 230, 230],
+        textColor: [0, 0, 0],
+        fontStyle: "bold",
+      },
+      styles: {
+        font: "helvetica",
+        fontSize: 10,
+        cellPadding: 2,
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 80 },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 40, halign: "right" },
+      },
+      didDrawCell: (data) => {
+        if (data.column.index === 0 && data.cell.section === "body") {
+          doc.rect(data.cell.x + data.cell.width / 2 - 1.5, data.cell.y + data.cell.height / 2 - 1.5, 3, 3)
+        }
+      },
+      didDrawPage: (data) => {
+        drawFooter()
+        pageNumber++
+        if (data.pageNumber > 1) {
+          drawHeader()
+        }
+      },
+    })
+  } else {
+    drawFooter()
+  }
+
+  let fileName = ""
+  if (mode === "packliste" && eventDetails.date) {
+    try {
+      const dateParts = eventDetails.date.split(".")
+      if (dateParts.length === 3) {
+        const [day, month, year] = dateParts
+        fileName = `${year}-${month}-${day}_${eventDetails.name || "Packliste"}`
+      } else {
+        fileName = `${eventDetails.date}_${eventDetails.name || "Packliste"}`
+      }
+    } catch (error) {
+      fileName = `${eventDetails.date}_${eventDetails.name || "Packliste"}`
+    }
+  } else if (mode === "bestellung" && eventDetails.supplierName) {
+    fileName = `Bestellung_${eventDetails.supplierName}_${eventDetails.date || "Kein-Datum"}`
+  } else {
+    fileName = `${getTitle()}_${eventDetails.name || "Dokument"}_${eventDetails.date || "Kein-Datum"}`
+  }
+  fileName = fileName.replace(/\s+/g, "_").replace(/[^\w\-.]/g, "")
+
+  doc.setProperties({
+    title: fileName,
+    subject: getTitle(),
+    author: "I Eat Vienna",
+    keywords: `${getTitle()}, ${eventDetails.type}, ${eventDetails.name}`,
+    creator: "I Eat Vienna App",
+  })
+
+  doc.save(`${fileName}.pdf`)
 }
