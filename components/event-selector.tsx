@@ -55,6 +55,7 @@ export function EventSelector() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [eventToDelete, setEventToDelete] = useState<Event | null>(null)
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false)
 
   // Filtering states
   const [nameFilter, setNameFilter] = useState("")
@@ -589,7 +590,7 @@ export function EventSelector() {
               </div>
               <div className="space-y-2">
                 <Label>Enddatum (optional)</Label>
-                <Popover>
+                <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
@@ -605,6 +606,7 @@ export function EventSelector() {
                       selected={endDate}
                       onSelect={(selectedDate) => {
                         setEndDate(selectedDate)
+                        setIsEndDatePickerOpen(false) // Auto-close calendar
                       }}
                       initialFocus
                       locale={de}

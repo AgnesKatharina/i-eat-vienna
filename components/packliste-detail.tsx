@@ -532,6 +532,39 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     [handleDeleteProduct],
   )
 
+  const handleClearCategory = useCallback(
+    (categoryName: string) => {
+      // Get all products from this category that are currently selected
+      const productsToDelete = Object.keys(selectedProducts).filter(
+        (productName) => productCategories[productName] === categoryName,
+      )
+
+      // Delete all products in this category
+      setSelectedProducts((prev) => {
+        const newProducts = { ...prev }
+        productsToDelete.forEach((productName) => {
+          delete newProducts[productName]
+        })
+        return newProducts
+      })
+
+      // Update product quantities as well
+      setProductQuantities((prev) => {
+        const newQuantities = { ...prev }
+        productsToDelete.forEach((productName) => {
+          delete newQuantities[productName]
+        })
+        return newQuantities
+      })
+
+      toast({
+        title: "Erfolg",
+        description: `Alle Produkte aus der Kategorie "${categoryName}" wurden gelöscht.`,
+      })
+    },
+    [selectedProducts, productCategories, toast],
+  )
+
   const handleDeleteAllInCategory = useCallback((category: string) => {
     setCategoryToDelete(category)
     setIsDeleteAllDialogOpen(true)
@@ -1410,16 +1443,37 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       </div>
 
       {/* Category Tabs */}
-      <Tabs value={activeCategory} onValueChange={setActiveCategory} className="w-full">
-        <TabsList className="flex flex-wrap h-auto">
-          {packlisteCategories.map((category) => (
-            <TabsTrigger key={category} value={category} className="flex-grow">
-              <span className="mr-2">{getCategoryIcon(category)}</span>
-              {category}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <div className="space-y-4">
+        <Tabs value={activeCategory} onValueChange={setActiveCategory} className="w-full">
+          <TabsList className="flex flex-wrap h-auto">
+            {packlisteCategories.map((category) => (
+              <TabsTrigger key={category} value={category} className="flex-grow">
+                <span className="mr-2">{getCategoryIcon(category)}</span>
+                {category}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {/* Clear Category Button for Active Category */}
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold flex items-center">
+            <span className="mr-2">{getCategoryIcon(activeCategory)}</span>
+            {activeCategory}
+          </h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleClearCategory(activeCategory)}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+            disabled={
+              !Object.keys(selectedProducts).some((productName) => productCategories[productName] === activeCategory)
+            }
+          >
+            Alles löschen
+          </Button>
+        </div>
+      </div>
 
       {/* Search Bar */}
       <div className="relative">
