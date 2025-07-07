@@ -162,6 +162,7 @@ export async function generatePdf(
   getUnitPlural: (quantity: number, unit: string) => string,
   mode = "packliste",
   productCategories: Record<string, string> = {},
+  ingredientFoodTypes: Record<string, string> = {},
 ) {
   const doc = new jsPDF({
     orientation: "landscape",
@@ -287,74 +288,77 @@ export async function generatePdf(
   const xPositions = Array.from({ length: maxColumns }, (_, i) => 20 + i * columnWidth)
   let yPosition = 35
 
-  // Draw category headers
-  doc.setFont("helvetica", "bold")
-  doc.setFontSize(12)
-  for (let i = 0; i < maxColumns; i++) {
-    if (i < sortedCategories.length) {
-      doc.text(sortedCategories[i], xPositions[i], yPosition)
-    }
-  }
-  doc.setFont("helvetica", "normal")
-  doc.setFontSize(9)
-  yPosition += 8
-
-  const maxYPosition = pageHeight - 25
-  const maxProductsInCategory = Math.max(0, ...sortedCategories.map((cat) => productsByCategory[cat].length))
-
-  // Draw products in columns
-  for (let productIndex = 0; productIndex < maxProductsInCategory; productIndex++) {
-    if (yPosition > maxYPosition) {
-      // Add new page
-      doc.addPage()
-      currentPageNumber++
-
-      // Draw header and footer on new page
-      drawHeader()
-      drawFooter()
-      doc.setTextColor(0, 0, 0)
-      yPosition = 35
-
-      // Redraw category headers on new page
-      doc.setFont("helvetica", "bold")
-      doc.setFontSize(12)
-      for (let i = 0; i < maxColumns; i++) {
-        if (i < sortedCategories.length) {
-          doc.text(sortedCategories[i], xPositions[i], yPosition)
-        }
+  // Only draw products if there are any
+  if (Object.keys(selectedProducts).length > 0) {
+    // Draw category headers
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(12)
+    for (let i = 0; i < maxColumns; i++) {
+      if (i < sortedCategories.length) {
+        doc.text(sortedCategories[i], xPositions[i], yPosition)
       }
-      doc.setFont("helvetica", "normal")
-      doc.setFontSize(9)
-      yPosition += 8
     }
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(9)
+    yPosition += 8
 
-    for (let colIndex = 0; colIndex < maxColumns && colIndex < sortedCategories.length; colIndex++) {
-      const category = sortedCategories[colIndex]
-      const products = productsByCategory[category].sort((a, b) => a.name.localeCompare(b.name))
+    const maxYPosition = pageHeight - 25
+    const maxProductsInCategory = Math.max(0, ...sortedCategories.map((cat) => productsByCategory[cat].length))
 
-      if (productIndex < products.length) {
-        const product = products[productIndex]
+    // Draw products in columns
+    for (let productIndex = 0; productIndex < maxProductsInCategory; productIndex++) {
+      if (yPosition > maxYPosition) {
+        // Add new page
+        doc.addPage()
+        currentPageNumber++
 
-        // Draw checkbox
-        doc.rect(xPositions[colIndex], yPosition - 3, 3, 3)
+        // Draw header and footer on new page
+        drawHeader()
+        drawFooter()
+        doc.setTextColor(0, 0, 0)
+        yPosition = 35
 
-        // Draw product text
-        const productText = `${product.quantity}x ${product.name}`
-        const maxTextWidth = columnWidth - 8
-        let displayText = productText
-
-        // Truncate text if too long
-        if (doc.getTextWidth(displayText) > maxTextWidth) {
-          while (doc.getTextWidth(displayText + "...") > maxTextWidth && displayText.length > 10) {
-            displayText = displayText.slice(0, -1)
+        // Redraw category headers on new page
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(12)
+        for (let i = 0; i < maxColumns; i++) {
+          if (i < sortedCategories.length) {
+            doc.text(sortedCategories[i], xPositions[i], yPosition)
           }
-          displayText += "..."
         }
-
-        doc.text(displayText, xPositions[colIndex] + 5, yPosition)
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(9)
+        yPosition += 8
       }
+
+      for (let colIndex = 0; colIndex < maxColumns && colIndex < sortedCategories.length; colIndex++) {
+        const category = sortedCategories[colIndex]
+        const products = productsByCategory[category].sort((a, b) => a.name.localeCompare(b.name))
+
+        if (productIndex < products.length) {
+          const product = products[productIndex]
+
+          // Draw checkbox
+          doc.rect(xPositions[colIndex], yPosition - 3, 3, 3)
+
+          // Draw product text
+          const productText = `${product.quantity}x ${product.name}`
+          const maxTextWidth = columnWidth - 8
+          let displayText = productText
+
+          // Truncate text if too long
+          if (doc.getTextWidth(displayText) > maxTextWidth) {
+            while (doc.getTextWidth(displayText + "...") > maxTextWidth && displayText.length > 10) {
+              displayText = displayText.slice(0, -1)
+            }
+            displayText += "..."
+          }
+
+          doc.text(displayText, xPositions[colIndex] + 5, yPosition)
+        }
+      }
+      yPosition += 6
     }
-    yPosition += 6
   }
 
   // Add ingredients table if available
@@ -372,201 +376,164 @@ export async function generatePdf(
     doc.text("Zutaten", 20, 25)
     doc.line(20, 28, pageWidth - 20, 28)
 
-    // Prepare table data
-    const sortedIngredients = Object.entries(calculatedIngredients).sort(([a], [b]) => a.localeCompare(b))
-    const tableRows: TableRow[] = sortedIngredients.map(([ingredient, details]) => {
-      const packagingText = `${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}`
-      const totalText = formatWeight(details.totalAmount, details.unit)
-
-      return {
-        "0": "", // Checkbox column
-        "1": ingredient,
-        "2": packagingText,
-        "3": totalText,
-      }
-    })
-
-    const tableColumns: TableColumn[] = [
-      { header: "", width: 15, align: "center" },
-      { header: "Zutat", width: 80, align: "left" },
-      { header: "Gesamtmenge", width: 120, align: "left" },
-      { header: "Benötigte Menge", width: 50, align: "right" },
-    ]
-
-    // Custom table rendering with proper page breaks
     let currentY = 35
-    const rowHeight = 10
-    const headerHeight = 10
 
-    // Draw table header
-    const startX = 20
-    let currentX = startX
+    // Separate ingredients by food classification
+    const foodIngredients: Record<string, CalculatedIngredient> = {}
+    const nonFoodIngredients: Record<string, CalculatedIngredient> = {}
 
-    // Header background
-    doc.setFillColor(230, 230, 230)
-    doc.rect(
-      startX,
-      currentY,
-      tableColumns.reduce((sum, col) => sum + col.width, 0),
-      headerHeight,
-      "F",
-    )
+    Object.entries(calculatedIngredients).forEach(([ingredientName, details]) => {
+      const foodType = ingredientFoodTypes[ingredientName] || "unclassified"
 
-    // Header border
-    doc.setDrawColor(0, 0, 0)
-    doc.rect(
-      startX,
-      currentY,
-      tableColumns.reduce((sum, col) => sum + col.width, 0),
-      headerHeight,
-    )
-
-    // Header text
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(12) // Changed from 10 to 12
-    doc.setTextColor(0, 0, 0)
-
-    tableColumns.forEach((column) => {
-      const textY = currentY + headerHeight / 2 + 2
-
-      if (column.align === "center") {
-        doc.text(column.header, currentX + column.width / 2, textY, { align: "center" })
-      } else if (column.align === "right") {
-        doc.text(column.header, currentX + column.width - 2, textY, { align: "right" })
+      if (foodType === "food") {
+        foodIngredients[ingredientName] = details
       } else {
-        doc.text(column.header, currentX + 2, textY)
+        // Treat both 'non-food' and unclassified as Non Food
+        nonFoodIngredients[ingredientName] = details
       }
-
-      // Column separator
-      if (currentX > startX) {
-        doc.line(currentX, currentY, currentX, currentY + headerHeight)
-      }
-
-      currentX += column.width
     })
 
-    currentY += headerHeight
+    // Function to draw ingredients section
+    const drawIngredientsSection = (ingredients: Record<string, CalculatedIngredient>, title: string) => {
+      if (Object.keys(ingredients).length === 0) return currentY
 
-    // Draw table rows
-    doc.setFont("helvetica", "normal")
-    doc.setFontSize(12)
+      // Section title
+      doc.setFontSize(12)
+      doc.setFont("helvetica", "bold")
+      doc.text(title, 20, currentY)
+      doc.line(20, currentY + 2, pageWidth - 20, currentY + 2)
+      currentY += 10
 
-    tableRows.forEach((row, rowIndex) => {
-      // Check if we need a new page
-      if (currentY + rowHeight > pageHeight - 25) {
-        doc.addPage()
-        currentPageNumber++
+      // Table header
+      const startX = 20
+      const colWidths = [15, 80, 120, 50] // checkbox, ingredient, total amount, required amount
+      let currentX = startX
 
-        // Draw header and footer on new page
-        drawHeader()
-        drawFooter()
-        doc.setTextColor(0, 0, 0)
-        currentY = 35
-
-        // Redraw table header
-        currentX = startX
-        doc.setFillColor(230, 230, 230)
-        doc.rect(
-          startX,
-          currentY,
-          tableColumns.reduce((sum, col) => sum + col.width, 0),
-          headerHeight,
-          "F",
-        )
-        doc.setDrawColor(0, 0, 0)
-        doc.rect(
-          startX,
-          currentY,
-          tableColumns.reduce((sum, col) => sum + col.width, 0),
-          headerHeight,
-        )
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(12) // Changed from 10 to 12
-
-        tableColumns.forEach((column) => {
-          const textY = currentY + headerHeight / 2 + 2
-          if (column.align === "center") {
-            doc.text(column.header, currentX + column.width / 2, textY, { align: "center" })
-          } else if (column.align === "right") {
-            doc.text(column.header, currentX + column.width - 2, textY, { align: "right" })
-          } else {
-            doc.text(column.header, currentX + 2, textY)
-          }
-          if (currentX > startX) {
-            doc.line(currentX, currentY, currentX, currentY + headerHeight)
-          }
-          currentX += column.width
-        })
-        currentY += headerHeight
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(12)
-      }
-
-      // Draw row
-      currentX = startX
-
-      // Alternate row background
-      if (rowIndex % 2 === 0) {
-        doc.setFillColor(245, 245, 245)
-        doc.rect(
-          startX,
-          currentY,
-          tableColumns.reduce((sum, col) => sum + col.width, 0),
-          rowHeight,
-          "F",
-        )
-      }
-
-      // Row border
-      doc.setDrawColor(200, 200, 200)
+      // Header background
+      doc.setFillColor(230, 230, 230)
       doc.rect(
         startX,
         currentY,
-        tableColumns.reduce((sum, col) => sum + col.width, 0),
-        rowHeight,
+        colWidths.reduce((sum, w) => sum + w, 0),
+        10,
+        "F",
       )
 
-      tableColumns.forEach((column, colIndex) => {
-        const text = row[colIndex.toString()] || ""
-        const textY = currentY + rowHeight / 2 + 3
+      // Header border
+      doc.setDrawColor(0, 0, 0)
+      doc.rect(
+        startX,
+        currentY,
+        colWidths.reduce((sum, w) => sum + w, 0),
+        10,
+      )
 
-        if (colIndex === 0) {
-          // Checkbox column
-          const checkboxSize = 3
-          const checkboxX = currentX + (column.width - checkboxSize) / 2
-          const checkboxY = currentY + (rowHeight - checkboxSize) / 2
-          doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
+      // Header text
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(10)
+      const headers = ["", "Zutat", "Gesamtmenge", "Benötigte Menge"]
+
+      headers.forEach((header, index) => {
+        if (index === 0) {
+          // Checkbox column - no text
+        } else if (index === 3) {
+          // Right align for "Benötigte Menge"
+          doc.text(header, currentX + colWidths[index] - 2, currentY + 6, { align: "right" })
         } else {
-          // Text columns with different styling
-          if (colIndex === 1 || colIndex === 2) {
-            // Ingredient name and total amount - bold
-            doc.setFont("helvetica", "bold")
-            doc.setTextColor(0, 0, 0)
-          } else if (colIndex === 3) {
-            // Required amount - normal weight, grey color
-            doc.setFont("helvetica", "normal")
-            doc.setTextColor(102, 102, 102)
-          }
-
-          if (column.align === "center") {
-            doc.text(text, currentX + column.width / 2, textY, { align: "center" })
-          } else if (column.align === "right") {
-            doc.text(text, currentX + column.width - 2, textY, { align: "right" })
-          } else {
-            doc.text(text, currentX + 2, textY)
-          }
+          doc.text(header, currentX + 2, currentY + 6)
         }
 
-        // Column separator
         if (currentX > startX) {
-          doc.line(currentX, currentY, currentX, currentY + rowHeight)
+          doc.line(currentX, currentY, currentX, currentY + 10)
         }
-
-        currentX += column.width
+        currentX += colWidths[index]
       })
 
-      currentY += rowHeight
-    })
+      currentY += 10
+
+      // Table rows
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(9)
+
+      Object.entries(ingredients)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .forEach(([ingredient, details], rowIndex) => {
+          // Check if we need a new page
+          if (currentY + 8 > pageHeight - 30) {
+            doc.addPage()
+            currentPageNumber++
+            drawHeader()
+            drawFooter()
+            doc.setTextColor(0, 0, 0)
+            currentY = 35
+          }
+
+          currentX = startX
+
+          // Alternate row background
+          if (rowIndex % 2 === 0) {
+            doc.setFillColor(245, 245, 245)
+            doc.rect(
+              startX,
+              currentY,
+              colWidths.reduce((sum, w) => sum + w, 0),
+              8,
+              "F",
+            )
+          }
+
+          // Row border
+          doc.setDrawColor(200, 200, 200)
+          doc.rect(
+            startX,
+            currentY,
+            colWidths.reduce((sum, w) => sum + w, 0),
+            8,
+          )
+
+          // Row content
+          const rowData = [
+            "", // Checkbox
+            ingredient,
+            `${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}`,
+            formatWeight(details.totalAmount, details.unit),
+          ]
+
+          rowData.forEach((text, index) => {
+            if (index === 0) {
+              // Draw checkbox
+              const checkboxSize = 3
+              const checkboxX = currentX + (colWidths[index] - checkboxSize) / 2
+              const checkboxY = currentY + (8 - checkboxSize) / 2
+              doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
+            } else {
+              const textY = currentY + 5
+              if (index === 3) {
+                // Right align for required amount
+                doc.text(text, currentX + colWidths[index] - 2, textY, { align: "right" })
+              } else {
+                doc.text(text, currentX + 2, textY)
+              }
+            }
+
+            if (currentX > startX) {
+              doc.line(currentX, currentY, currentX, currentY + 8)
+            }
+            currentX += colWidths[index]
+          })
+
+          currentY += 8
+        })
+
+      currentY += 10 // Space after section
+      return currentY
+    }
+
+    // Draw Non Food section first
+    currentY = drawIngredientsSection(nonFoodIngredients, "Non Food")
+
+    // Draw Food section second
+    currentY = drawIngredientsSection(foodIngredients, "Food")
   }
 
   // Generate filename

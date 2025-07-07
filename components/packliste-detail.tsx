@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle, Calendar } from "lucide-react"
+import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -21,13 +21,12 @@ import { format } from "date-fns"
 import { de } from "date-fns/locale"
 import { unitPlurals } from "@/lib/data"
 import { getEvent, saveEventProducts, getEventProducts, updateEvent, updatePrintReadyStatus } from "@/lib/event-service"
-import { getAllProducts, getCategories, getProductRecipes, getProductPackaging } from "@/lib/supabase-service"
+import { getAllProducts, getCategories, getBatchRecipesAndPackaging } from "@/lib/supabase-service"
 import { generatePdf } from "@/lib/pdf-generator"
 import { PacklisteSkeleton } from "@/components/packliste-skeleton"
 import type { SelectedProduct, EventDetails, CalculatedIngredient, Event } from "@/lib/types"
 import type { ProductWithCategory } from "@/lib/supabase-service"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 interface PacklisteDetailProps {
   eventId: string
@@ -90,6 +89,9 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   >({})
   const [searchTerm, setSearchTerm] = useState("")
 
+  // Add state for ingredient food classifications
+  const [ingredientFoodTypes, setIngredientFoodTypes] = useState<Record<string, string>>({})
+
   // Edit form state
   const [editForm, setEditForm] = useState({
     name: "",
@@ -99,6 +101,37 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     ft: "",
     ka: "",
   })
+
+  // Memoized filtered products for better performance
+  const filteredProducts = useMemo(() => {
+    let filtered = products.filter((product) => product.category?.name === activeCategory)
+
+    if (searchTerm) {
+      const lowerSearchTerm = searchTerm.toLowerCase()
+      filtered = filtered.filter((product) => product.name.toLowerCase().includes(lowerSearchTerm))
+    }
+
+    return filtered
+  }, [products, activeCategory, searchTerm])
+
+  // Separate ingredients by food classification
+  const separatedIngredients = useMemo(() => {
+    const foodIngredients: Record<string, CalculatedIngredient> = {}
+    const nonFoodIngredients: Record<string, CalculatedIngredient> = {}
+
+    Object.entries(calculatedIngredients).forEach(([ingredientName, details]) => {
+      const foodType = ingredientFoodTypes[ingredientName] || "unclassified"
+
+      if (foodType === "food") {
+        foodIngredients[ingredientName] = details
+      } else {
+        // Treat both 'non-food' and unclassified as Non Food
+        nonFoodIngredients[ingredientName] = details
+      }
+    })
+
+    return { foodIngredients, nonFoodIngredients }
+  }, [calculatedIngredients, ingredientFoodTypes])
 
   // Update finished status function
   const updateFinishedStatus = async (isFinished: boolean): Promise<boolean> => {
@@ -116,6 +149,45 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       return false
     }
   }
+
+  // Optimized function to load recipes and packaging in batches using the new batch function
+  const loadRecipesAndPackaging = useCallback(async (productsData: ProductWithCategory[]) => {
+    const productIds = productsData.map((p) => p.id)
+    const { recipes: batchRecipes, packaging: batchPackaging } = await getBatchRecipesAndPackaging(productIds)
+
+    const recipesMap: Record<string, Record<string, { menge: number; einheit: string }>> = {}
+    const packagingMap: Record<string, { pro_verpackung: number; verpackungseinheit: string }> = {}
+
+    // Process recipes
+    Object.entries(batchRecipes).forEach(([productId, productRecipes]) => {
+      const product = productsData.find((p) => p.id === Number.parseInt(productId))
+      if (product && productRecipes.length > 0) {
+        recipesMap[product.name] = {}
+        productRecipes.forEach((recipe) => {
+          if (recipe.ingredient) {
+            // @ts-ignore - ingredient is a joined field
+            recipesMap[product.name][recipe.ingredient.name] = {
+              menge: recipe.amount,
+              einheit: recipe.ingredient.unit,
+            }
+          }
+        })
+      }
+    })
+
+    // Process packaging
+    Object.entries(batchPackaging).forEach(([productId, productPackaging]) => {
+      const product = productsData.find((p) => p.id === Number.parseInt(productId))
+      if (product && productPackaging) {
+        packagingMap[product.name] = {
+          pro_verpackung: productPackaging.amount_per_package,
+          verpackungseinheit: productPackaging.packaging_unit,
+        }
+      }
+    })
+
+    return { recipes: recipesMap, packaging: packagingMap }
+  }, [])
 
   // Load event data and categories/products from database
   useEffect(() => {
@@ -160,14 +232,20 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
         // Create product categories mapping for PDF export
         const categoryMap: Record<string, string> = {}
+        const foodTypeMap: Record<string, string> = {}
         productsData.forEach((product) => {
           if (product.category) {
             categoryMap[product.name] = product.category.name
           }
+          // Store food classification for ingredients
+          if (product.food_type) {
+            foodTypeMap[product.name] = product.food_type
+          }
         })
         setProductCategories(categoryMap)
+        setIngredientFoodTypes(foodTypeMap)
 
-        // Load event products in parallel with recipes/packaging
+        // Load event products and recipes/packaging in parallel
         const [eventProducts, recipesAndPackaging] = await Promise.all([
           getEventProducts(eventId),
           loadRecipesAndPackaging(productsData),
@@ -216,56 +294,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     }
 
     loadData()
-  }, [eventId, toast])
-
-  // Optimized function to load recipes and packaging in batches
-  async function loadRecipesAndPackaging(productsData: ProductWithCategory[]) {
-    const recipesMap: Record<string, Record<string, { menge: number; einheit: string }>> = {}
-    const packagingMap: Record<string, { pro_verpackung: number; verpackungseinheit: string }> = {}
-
-    // Process products in batches of 10 to avoid overwhelming the database
-    const batchSize = 10
-    for (let i = 0; i < productsData.length; i += batchSize) {
-      const batch = productsData.slice(i, i + batchSize)
-
-      // Load recipes and packaging for this batch in parallel
-      const batchPromises = batch.map(async (product) => {
-        const [productRecipes, productPackaging] = await Promise.all([
-          getProductRecipes(product.id),
-          getProductPackaging(product.id),
-        ])
-
-        return { product, productRecipes, productPackaging }
-      })
-
-      const batchResults = await Promise.all(batchPromises)
-
-      // Process results
-      batchResults.forEach(({ product, productRecipes, productPackaging }) => {
-        if (productRecipes.length > 0) {
-          recipesMap[product.name] = {}
-          for (const recipe of productRecipes) {
-            if (recipe.ingredient) {
-              // @ts-ignore - ingredient is a joined field
-              recipesMap[product.name][recipe.ingredient.name] = {
-                menge: recipe.amount,
-                einheit: recipe.ingredient.unit,
-              }
-            }
-          }
-        }
-
-        if (productPackaging) {
-          packagingMap[product.name] = {
-            pro_verpackung: productPackaging.amount_per_package,
-            verpackungseinheit: productPackaging.packaging_unit,
-          }
-        }
-      })
-    }
-
-    return { recipes: recipesMap, packaging: packagingMap }
-  }
+  }, [eventId, toast, loadRecipesAndPackaging])
 
   // Calculate ingredients whenever selected products change
   useEffect(() => {
@@ -345,14 +374,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   }, [selectedProducts, event, eventDetails, initialSelectedProducts, initialEventDetails, isPrintReady, isFinished])
 
   // Helper functions
-  const getUnitPlural = (quantity: number, unit: string): string => {
+  const getUnitPlural = useCallback((quantity: number, unit: string): string => {
     if (quantity > 1) {
       return unitPlurals[unit] || unit
     }
     return unit
-  }
+  }, [])
 
-  const formatWeight = (value: number, unit: string): string => {
+  const formatWeight = useCallback((value: number, unit: string): string => {
     if (unit.toLowerCase() === "gramm" && value >= 1000) {
       return `${(value / 1000).toFixed(1)} Kg`
     } else if (unit.toLowerCase() === "milliliter" && value >= 1000) {
@@ -360,10 +389,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     } else {
       return `${value} ${unit}`
     }
-  }
+  }, [])
 
   // Get the category icon
-  const getCategoryIcon = (categoryName: string) => {
+  const getCategoryIcon = useCallback((categoryName: string) => {
     switch (categoryName) {
       case "Essen":
         return "🍔"
@@ -380,10 +409,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       default:
         return "📦"
     }
-  }
+  }, [])
 
   // Get the category background color (light version for unselected products)
-  const getCategoryBackgroundColor = (categoryName: string) => {
+  const getCategoryBackgroundColor = useCallback((categoryName: string) => {
     switch (categoryName) {
       case "Essen":
         return "bg-orange-50 border-orange-200 hover:bg-orange-100"
@@ -400,10 +429,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       default:
         return "bg-gray-50 border-gray-200 hover:bg-gray-100"
     }
-  }
+  }, [])
 
   // Get the stronger category background color for selected products
-  const getSelectedCategoryBackgroundColor = (categoryName: string) => {
+  const getSelectedCategoryBackgroundColor = useCallback((categoryName: string) => {
     switch (categoryName) {
       case "Essen":
         return "bg-orange-200 border-orange-400 hover:bg-orange-300 shadow-sm"
@@ -420,65 +449,49 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       default:
         return "bg-gray-200 border-gray-400 hover:bg-gray-300 shadow-sm"
     }
-  }
-
-  // Filter products by active category and search term
-  const filteredProducts = useCallback(() => {
-    let filtered = products.filter((product) => product.category?.name === activeCategory)
-
-    if (searchTerm) {
-      const lowerSearchTerm = searchTerm.toLowerCase()
-      filtered = filtered.filter((product) => product.name.toLowerCase().includes(lowerSearchTerm))
-    }
-
-    return filtered
-  }, [products, activeCategory, searchTerm])
+  }, [])
 
   // Event handlers
-  const handleProductSelect = (
-    productId: number,
-    productName: string,
-    category: string,
-    quantity: number,
-    unit: string,
-    overwrite = false,
-  ) => {
-    setSelectedProducts((prev) => {
-      const newProducts = { ...prev }
+  const handleProductSelect = useCallback(
+    (productId: number, productName: string, category: string, quantity: number, unit: string, overwrite = false) => {
+      setSelectedProducts((prev) => {
+        const newProducts = { ...prev }
 
-      if (overwrite) {
-        if (quantity <= 0) {
-          delete newProducts[productName]
-        } else {
+        if (overwrite) {
+          if (quantity <= 0) {
+            delete newProducts[productName]
+          } else {
+            newProducts[productName] = { quantity, unit }
+          }
+        } else if (productName in newProducts) {
+          const newQuantity = newProducts[productName].quantity + quantity
+          if (newQuantity <= 0) {
+            delete newProducts[productName]
+          } else {
+            newProducts[productName].quantity = newQuantity
+          }
+        } else if (quantity > 0) {
           newProducts[productName] = { quantity, unit }
         }
-      } else if (productName in newProducts) {
-        const newQuantity = newProducts[productName].quantity + quantity
-        if (newQuantity <= 0) {
-          delete newProducts[productName]
-        } else {
-          newProducts[productName].quantity = newQuantity
-        }
-      } else if (quantity > 0) {
-        newProducts[productName] = { quantity, unit }
-      }
 
-      // Update the product quantities state as well
-      setProductQuantities((prevQuantities) => {
-        const newQuantities = { ...prevQuantities }
-        if (productName in newProducts) {
-          newQuantities[productName] = newProducts[productName].quantity
-        } else {
-          delete newQuantities[productName]
-        }
-        return newQuantities
+        // Update the product quantities state as well
+        setProductQuantities((prevQuantities) => {
+          const newQuantities = { ...prevQuantities }
+          if (productName in newProducts) {
+            newQuantities[productName] = newProducts[productName].quantity
+          } else {
+            delete newQuantities[productName]
+          }
+          return newQuantities
+        })
+
+        return newProducts
       })
+    },
+    [],
+  )
 
-      return newProducts
-    })
-  }
-
-  const handleDeleteProduct = (product: string) => {
+  const handleDeleteProduct = useCallback((product: string) => {
     setSelectedProducts((prev) => {
       const newProducts = { ...prev }
       delete newProducts[product]
@@ -492,36 +505,39 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
       return newProducts
     })
-  }
+  }, [])
 
-  const handleQuantityChange = (product: string, quantity: number) => {
-    // If quantity is 0 or less, remove the product entirely
-    if (quantity <= 0) {
-      handleDeleteProduct(product)
-      return
-    }
-
-    // Update both states for positive quantities
-    setSelectedProducts((prev) => {
-      const newProducts = { ...prev }
-      if (product in newProducts) {
-        newProducts[product].quantity = quantity
+  const handleQuantityChange = useCallback(
+    (product: string, quantity: number) => {
+      // If quantity is 0 or less, remove the product entirely
+      if (quantity <= 0) {
+        handleDeleteProduct(product)
+        return
       }
-      return newProducts
-    })
 
-    setProductQuantities((prev) => ({
-      ...prev,
-      [product]: quantity,
-    }))
-  }
+      // Update both states for positive quantities
+      setSelectedProducts((prev) => {
+        const newProducts = { ...prev }
+        if (product in newProducts) {
+          newProducts[product].quantity = quantity
+        }
+        return newProducts
+      })
 
-  const handleDeleteAllInCategory = (category: string) => {
+      setProductQuantities((prev) => ({
+        ...prev,
+        [product]: quantity,
+      }))
+    },
+    [handleDeleteProduct],
+  )
+
+  const handleDeleteAllInCategory = useCallback((category: string) => {
     setCategoryToDelete(category)
     setIsDeleteAllDialogOpen(true)
-  }
+  }, [])
 
-  const confirmDeleteAllInCategory = () => {
+  const confirmDeleteAllInCategory = useCallback(() => {
     // Get all products in the category that are currently selected
     const productsToDelete = Object.keys(selectedProducts).filter(
       (productName) => productCategories[productName] === categoryToDelete,
@@ -552,7 +568,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       title: "Erfolg",
       description: `Alle Produkte aus der Kategorie "${categoryToDelete}" wurden gelöscht.`,
     })
-  }
+  }, [selectedProducts, productCategories, categoryToDelete, toast])
 
   const handleSave = async () => {
     setSaving(true)
@@ -687,6 +703,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         formatWeight,
         getUnitPlural,
         productCategories,
+        ingredientFoodTypes,
       )
 
       setPrintPreviewContent(htmlContent)
@@ -724,6 +741,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         getUnitPlural,
         "packliste",
         productCategories, // Pass the product categories mapping
+        ingredientFoodTypes, // Pass the ingredient food types mapping
       )
 
       setIsPrintPreviewOpen(false)
@@ -748,6 +766,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     formatWeight: (value: number, unit: string) => string,
     getUnitPlural: (quantity: number, unit: string) => string,
     productCategories: Record<string, string>,
+    ingredientFoodTypes: Record<string, string>,
   ): string => {
     // Group products by their actual categories
     const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> = {}
@@ -765,6 +784,21 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     })
 
     const sortedCategories = Object.keys(productsByCategory).sort()
+
+    // Separate ingredients by food classification
+    const foodIngredients: Record<string, CalculatedIngredient> = {}
+    const nonFoodIngredients: Record<string, CalculatedIngredient> = {}
+
+    Object.entries(calculatedIngredients).forEach(([ingredientName, details]) => {
+      const foodType = ingredientFoodTypes[ingredientName] || "unclassified"
+
+      if (foodType === "food") {
+        foodIngredients[ingredientName] = details
+      } else {
+        // Treat both 'non-food' and unclassified as Non Food
+        nonFoodIngredients[ingredientName] = details
+      }
+    })
 
     // Generate HTML
     let html = `
@@ -841,9 +875,20 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             border-bottom: 2px solid #333;
             padding-bottom: 5px;
           }
+          .ingredients-subsection {
+            margin-bottom: 25px;
+          }
+          .ingredients-subtitle {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 3px;
+            border-bottom: 1px solid #666;
+          }
           .ingredients-table {
             width: 100%;
             border-collapse: collapse;
+            margin-bottom: 15px;
           }
           .ingredients-table th,
           .ingredients-table td {
@@ -928,34 +973,83 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       html += `
         <div class="ingredients-section">
           <div class="ingredients-title">Zutaten</div>
-          <table class="ingredients-table">
-            <thead>
-              <tr>
-                <th class="checkbox-cell"></th>
-                <th>Zutat</th>
-                <th>Gesamtmenge</th>
-                <th>Benötigte Menge</th>
-              </tr>
-            </thead>
-            <tbody>
       `
 
-      Object.entries(calculatedIngredients)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .forEach(([ingredient, details]) => {
-          html += `
-              <tr>
-                <td class="checkbox-cell"><div class="checkbox"></div></td>
-                <td class="ingredient-name">${ingredient}</td>
-                <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
-                <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
-              </tr>
-          `
-        })
+      // Non Food section first
+      if (Object.keys(nonFoodIngredients).length > 0) {
+        html += `
+          <div class="ingredients-subsection">
+            <div class="ingredients-subtitle">Non Food</div>
+            <table class="ingredients-table">
+              <thead>
+                <tr>
+                  <th class="checkbox-cell"></th>
+                  <th>Zutat</th>
+                  <th>Gesamtmenge</th>
+                  <th>Benötigte Menge</th>
+                </tr>
+              </thead>
+              <tbody>
+        `
+
+        Object.entries(nonFoodIngredients)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([ingredient, details]) => {
+            html += `
+                <tr>
+                  <td class="checkbox-cell"><div class="checkbox"></div></td>
+                  <td class="ingredient-name">${ingredient}</td>
+                  <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
+                  <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
+                </tr>
+            `
+          })
+
+        html += `
+              </tbody>
+            </table>
+          </div>
+        `
+      }
+
+      // Food section second
+      if (Object.keys(foodIngredients).length > 0) {
+        html += `
+          <div class="ingredients-subsection">
+            <div class="ingredients-subtitle">Food</div>
+            <table class="ingredients-table">
+              <thead>
+                <tr>
+                  <th class="checkbox-cell"></th>
+                  <th>Zutat</th>
+                  <th>Gesamtmenge</th>
+                  <th>Benötigte Menge</th>
+                </tr>
+              </thead>
+              <tbody>
+        `
+
+        Object.entries(foodIngredients)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([ingredient, details]) => {
+            html += `
+                <tr>
+                  <td class="checkbox-cell"><div class="checkbox"></div></td>
+                  <td class="ingredient-name">${ingredient}</td>
+                  <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
+                  <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
+                </tr>
+            `
+          })
+
+        html += `
+              </tbody>
+            </table>
+          </div>
+        `
+      }
 
       html += `
-            </tbody>
-          </table>
         </div>
       `
     }
@@ -1020,6 +1114,46 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
   const handleDiscardAndGoBack = () => {
     router.push("/app/packliste")
+  }
+
+  // Render ingredients table component
+  const renderIngredientsTable = (ingredients: Record<string, CalculatedIngredient>, title: string) => {
+    if (Object.keys(ingredients).length === 0) return null
+
+    return (
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold mb-3 pb-2 border-b border-gray-300">{title}</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left p-2 w-8"></th>
+                <th className="text-left p-2">Zutat</th>
+                <th className="text-left p-2">Gesamtmenge</th>
+                <th className="text-left p-2">Benötigte Menge</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(ingredients)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([ingredient, details]) => (
+                  <tr key={ingredient} className="border-b">
+                    <td className="p-2 text-center">
+                      <div className="w-4 h-4 border border-gray-400 rounded-sm mx-auto"></div>
+                    </td>
+                    <td className="p-2 text-base font-medium">{ingredient}</td>
+                    <td className="p-2 text-base font-medium">
+                      {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
+                      {formatWeight(details.amountPerPackage, details.unit)}
+                    </td>
+                    <td className="p-2 text-base">{formatWeight(details.totalAmount, details.unit)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
   }
 
   // Show skeleton while loading
@@ -1300,7 +1434,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {filteredProducts().map((product) => {
+        {filteredProducts.map((product) => {
           const isSelected = productQuantities[product.name] && productQuantities[product.name] > 0
           const backgroundColorClass = isSelected
             ? getSelectedCategoryBackgroundColor(activeCategory)
@@ -1445,36 +1579,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             </div>
             <div className="p-4">
               {Object.keys(calculatedIngredients).length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">Keine Zutaten berechnet</p>
+                <p className="text-center text-gray-500 py-4">Keine Zutaten berechnet</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left p-2 w-8"></th>
-                        <th className="text-left p-2">Zutat</th>
-                        <th className="text-left p-2">Gesamtmenge</th>
-                        <th className="text-left p-2">Benötigte Menge</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(calculatedIngredients)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([ingredient, details]) => (
-                          <tr key={ingredient} className="border-b">
-                            <td className="p-2 text-center">
-                              <div className="w-4 h-4 border border-gray-400 rounded-sm mx-auto"></div>
-                            </td>
-                            <td className="p-2 text-base font-medium">{ingredient}</td>
-                            <td className="p-2 text-base font-medium">
-                              {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
-                              {formatWeight(details.amountPerPackage, details.unit)}
-                            </td>
-                            <td className="p-2 text-base">{formatWeight(details.totalAmount, details.unit)}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-6">
+                  {/* Non Food Section First */}
+                  {renderIngredientsTable(separatedIngredients.nonFoodIngredients, "Non Food")}
+
+                  {/* Food Section Second */}
+                  {renderIngredientsTable(separatedIngredients.foodIngredients, "Food")}
                 </div>
               )}
             </div>
@@ -1482,17 +1594,49 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       </div>
 
-      {/* Edit Event Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* Dialogs */}
+      <Dialog open={isUnsavedChangesDialogOpen} onOpenChange={setIsUnsavedChangesDialogOpen}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Event bearbeiten
-            </DialogTitle>
-            <DialogDescription>Bearbeiten Sie die allgemeinen Informationen für dieses Event.</DialogDescription>
+            <DialogTitle>Ungespeicherte Änderungen</DialogTitle>
+            <DialogDescription>
+              Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie fortfahren?
+            </DialogDescription>
           </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleDiscardAndGoBack}>
+              Verwerfen
+            </Button>
+            <Button onClick={handleSaveAndGoBack}>Speichern und zurück</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
+      <Dialog open={isDeleteAllDialogOpen} onOpenChange={setIsDeleteAllDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Alle Produkte löschen</DialogTitle>
+            <DialogDescription>
+              Sind Sie sicher, dass Sie alle Produkte aus der Kategorie "{categoryToDelete}" löschen möchten?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteAllDialogOpen(false)}>
+              Abbrechen
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteAllInCategory}>
+              Alle löschen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Event bearbeiten</DialogTitle>
+            <DialogDescription>Bearbeiten Sie die Event-Details.</DialogDescription>
+          </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-name" className="text-right">
@@ -1503,26 +1647,23 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                 className="col-span-3"
-                placeholder="Event Name"
               />
             </div>
-
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-type" className="text-right">
                 Typ
               </Label>
               <Select value={editForm.type} onValueChange={(value) => setEditForm({ ...editForm, type: value })}>
                 <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Event Typ auswählen" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Catering">Catering</SelectItem>
                   <SelectItem value="Verkauf">Verkauf</SelectItem>
-                  <SelectItem value="Sonstiges">Sonstiges</SelectItem>
+                  <SelectItem value="Event">Event</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-date" className="text-right">
                 Startdatum
@@ -1535,7 +1676,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 className="col-span-3"
               />
             </div>
-
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-end-date" className="text-right">
                 Enddatum
@@ -1548,114 +1688,29 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 className="col-span-3"
               />
             </div>
-
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-ft" className="text-right">
                 Foodtruck
               </Label>
-              <div className="col-span-3">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
-                      {editForm.ft || "FT auswählen"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <div className="p-4 space-y-2">
-                      {["FT1", "FT2", "FT3", "FT4", "FT5", "Indoor"].map((ft) => {
-                        const currentFTs = editForm.ft ? editForm.ft.split(" & ") : []
-                        return (
-                          <div key={ft} className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              id={`edit-ft-${ft}`}
-                              checked={currentFTs.includes(ft)}
-                              onChange={(e) => {
-                                const currentFTs = editForm.ft ? editForm.ft.split(" & ") : []
-                                let newFTs
-                                if (e.target.checked) {
-                                  newFTs = [...currentFTs, ft]
-                                } else {
-                                  newFTs = currentFTs.filter((f) => f !== ft)
-                                }
-                                setEditForm({
-                                  ...editForm,
-                                  ft: newFTs.length > 0 ? newFTs.join(" & ") : "",
-                                })
-                              }}
-                            />
-                            <label htmlFor={`edit-ft-${ft}`}>{ft}</label>
-                          </div>
-                        )
-                      })}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditForm({ ...editForm, ft: "" })}
-                        className="w-full"
-                      >
-                        Alle abwählen
-                      </Button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+              <Input
+                id="edit-ft"
+                value={editForm.ft}
+                onChange={(e) => setEditForm({ ...editForm, ft: e.target.value })}
+                className="col-span-3"
+              />
             </div>
-
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-ka" className="text-right">
                 Kühlanhänger
               </Label>
-              <div className="col-span-3">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
-                      {editForm.ka || "KA auswählen"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <div className="p-4 space-y-2">
-                      {["KA 1", "KA 2", "KA 3", "KA 4", "KA 5", "K-FZ"].map((ka) => {
-                        const currentKAs = editForm.ka ? editForm.ka.split(" & ") : []
-                        return (
-                          <div key={ka} className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              id={`edit-ka-${ka}`}
-                              checked={currentKAs.includes(ka)}
-                              onChange={(e) => {
-                                const currentKAs = editForm.ka ? editForm.ka.split(" & ") : []
-                                let newKAs
-                                if (e.target.checked) {
-                                  newKAs = [...currentKAs, ka]
-                                } else {
-                                  newKAs = currentKAs.filter((k) => k !== ka)
-                                }
-                                setEditForm({
-                                  ...editForm,
-                                  ka: newKAs.length > 0 ? newKAs.join(" & ") : "",
-                                })
-                              }}
-                            />
-                            <label htmlFor={`edit-ka-${ka}`}>{ka}</label>
-                          </div>
-                        )
-                      })}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditForm({ ...editForm, ka: "" })}
-                        className="w-full"
-                      >
-                        Alle abwählen
-                      </Button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+              <Input
+                id="edit-ka"
+                value={editForm.ka}
+                onChange={(e) => setEditForm({ ...editForm, ka: e.target.value })}
+                className="col-span-3"
+              />
             </div>
           </div>
-
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Abbrechen
@@ -1665,56 +1720,23 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Unsaved Changes Dialog */}
-      <Dialog open={isUnsavedChangesDialogOpen} onOpenChange={setIsUnsavedChangesDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Ungespeicherte Änderungen</DialogTitle>
-            <DialogDescription>
-              Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie zurückgehen?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex justify-between gap-1 flex-row p-6">
-            <Button
-              variant="outline"
-              onClick={() => setIsUnsavedChangesDialogOpen(false)}
-              className="flex-1 text-sm px-2"
-            >
-              Abbrechen
-            </Button>
-            <Button variant="destructive" onClick={handleDiscardAndGoBack} className="flex-1 text-sm px-2">
-              Verwerfen
-            </Button>
-            <Button onClick={handleSaveAndGoBack} className="flex-1 text-sm px-2">
-              Speichern & Zurück
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Print Preview Dialog */}
       <Dialog open={isPrintPreviewOpen} onOpenChange={setIsPrintPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Druckvorschau - Packliste: {event?.name}</DialogTitle>
-            <DialogDescription>
-              Vorschau der Packliste. Sie können das Dokument drucken oder als PDF exportieren.
-            </DialogDescription>
+            <DialogTitle>Druckvorschau</DialogTitle>
+            <DialogDescription>Vorschau der Packliste vor dem Drucken oder PDF-Export.</DialogDescription>
           </DialogHeader>
-
-          <div className="flex-1 overflow-auto border rounded-md bg-white">
-            {printPreviewContent && (
-              <iframe srcDoc={printPreviewContent} className="w-full h-96 border-0" title="Print Preview" />
-            )}
+          <div className="mt-4">
+            <div className="border rounded-lg p-4 bg-white" dangerouslySetInnerHTML={{ __html: printPreviewContent }} />
           </div>
-
-          <DialogFooter className="flex justify-between">
+          <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setIsPrintPreviewOpen(false)}>
               Schließen
             </Button>
-            <Button onClick={handleExportPdf} className="bg-black hover:bg-gray-800 text-white">
-              Als PDF exportieren
+            <Button variant="outline" onClick={handlePrint}>
+              Drucken
             </Button>
+            <Button onClick={handleExportPdf}>PDF herunterladen</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

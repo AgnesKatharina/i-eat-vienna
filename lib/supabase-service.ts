@@ -11,7 +11,38 @@ export type ProductWithCategory = Product & { category: Category }
 export type ProductWithRecipes = Product & { recipes: Recipe[] }
 export type ProductWithPackaging = Product & { packaging: PackagingUnit | null }
 
+// Cache for frequently accessed data
+const cache = new Map<string, { data: any; timestamp: number; ttl: number }>()
+
+function getCacheKey(key: string): string {
+  return key
+}
+
+function setCache(key: string, data: any, ttlMinutes = 5): void {
+  cache.set(getCacheKey(key), {
+    data,
+    timestamp: Date.now(),
+    ttl: ttlMinutes * 60 * 1000,
+  })
+}
+
+function getCache(key: string): any | null {
+  const cached = cache.get(getCacheKey(key))
+  if (!cached) return null
+
+  if (Date.now() - cached.timestamp > cached.ttl) {
+    cache.delete(getCacheKey(key))
+    return null
+  }
+
+  return cached.data
+}
+
 export async function getCategories(): Promise<Category[]> {
+  const cacheKey = "categories"
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   const { data, error } = await supabase.from("categories").select("*").order("name")
 
   if (error) {
@@ -19,10 +50,16 @@ export async function getCategories(): Promise<Category[]> {
     return []
   }
 
-  return data || []
+  const result = data || []
+  setCache(cacheKey, result, 10) // Cache for 10 minutes
+  return result
 }
 
 export async function getProductsByCategory(categoryId: number): Promise<Product[]> {
+  const cacheKey = `products_category_${categoryId}`
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   const { data, error } = await supabase.from("products").select("*").eq("category_id", categoryId).order("name")
 
   if (error) {
@@ -30,10 +67,16 @@ export async function getProductsByCategory(categoryId: number): Promise<Product
     return []
   }
 
-  return data || []
+  const result = data || []
+  setCache(cacheKey, result, 5) // Cache for 5 minutes
+  return result
 }
 
 export async function getAllProducts(): Promise<ProductWithCategory[]> {
+  const cacheKey = "all_products_with_categories"
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   const { data, error } = await supabase
     .from("products")
     .select(`
@@ -47,10 +90,16 @@ export async function getAllProducts(): Promise<ProductWithCategory[]> {
     return []
   }
 
-  return data || []
+  const result = data || []
+  setCache(cacheKey, result, 5) // Cache for 5 minutes
+  return result
 }
 
 export async function getProductRecipes(productId: number): Promise<Recipe[]> {
+  const cacheKey = `product_recipes_${productId}`
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   const { data, error } = await supabase
     .from("recipes")
     .select(`
@@ -64,25 +113,95 @@ export async function getProductRecipes(productId: number): Promise<Recipe[]> {
     return []
   }
 
-  // Log the data to help with debugging
-  console.log(`Fetched ${data?.length || 0} recipes for product ID ${productId}:`, data)
-
-  return data || []
+  const result = data || []
+  setCache(cacheKey, result, 10) // Cache for 10 minutes
+  console.log(`Fetched ${result.length} recipes for product ID ${productId}:`, result)
+  return result
 }
 
 export async function getProductPackaging(productId: number): Promise<PackagingUnit | null> {
+  const cacheKey = `product_packaging_${productId}`
+  const cached = getCache(cacheKey)
+  if (cached !== null) return cached
+
   const { data, error } = await supabase.from("packaging_units").select("*").eq("product_id", productId).single()
 
   if (error) {
     if (error.code === "PGRST116") {
       // No packaging found for this product
+      setCache(cacheKey, null, 10)
       return null
     }
     console.error("Error fetching product packaging:", error)
     return null
   }
 
+  setCache(cacheKey, data, 10) // Cache for 10 minutes
   return data
+}
+
+// Batch function to load recipes and packaging efficiently
+export async function getBatchRecipesAndPackaging(productIds: number[]): Promise<{
+  recipes: Record<number, Recipe[]>
+  packaging: Record<number, PackagingUnit | null>
+}> {
+  const cacheKey = `batch_recipes_packaging_${productIds.sort().join(",")}`
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
+  // Load all recipes for all products in one query
+  const { data: recipesData, error: recipesError } = await supabase
+    .from("recipes")
+    .select(`
+      *,
+      ingredient:products!recipes_ingredient_id_fkey(id, name, unit)
+    `)
+    .in("product_id", productIds)
+
+  // Load all packaging for all products in one query
+  const { data: packagingData, error: packagingError } = await supabase
+    .from("packaging_units")
+    .select("*")
+    .in("product_id", productIds)
+
+  if (recipesError) {
+    console.error("Error fetching batch recipes:", recipesError)
+  }
+
+  if (packagingError) {
+    console.error("Error fetching batch packaging:", packagingError)
+  }
+
+  // Group by product_id
+  const recipes: Record<number, Recipe[]> = {}
+  const packaging: Record<number, PackagingUnit | null> = {}
+
+  // Initialize all products
+  productIds.forEach((id) => {
+    recipes[id] = []
+    packaging[id] = null
+  })
+
+  // Group recipes by product_id
+  if (recipesData) {
+    recipesData.forEach((recipe) => {
+      if (!recipes[recipe.product_id]) {
+        recipes[recipe.product_id] = []
+      }
+      recipes[recipe.product_id].push(recipe)
+    })
+  }
+
+  // Group packaging by product_id
+  if (packagingData) {
+    packagingData.forEach((pack) => {
+      packaging[pack.product_id] = pack
+    })
+  }
+
+  const result = { recipes, packaging }
+  setCache(cacheKey, result, 5) // Cache for 5 minutes
+  return result
 }
 
 export async function createCategory(
@@ -105,6 +224,8 @@ export async function createCategory(
     return null
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey("categories"))
   return data
 }
 
@@ -127,6 +248,9 @@ export async function updateCategory(
     return null
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey("categories"))
+  cache.delete(getCacheKey("all_products_with_categories"))
   return data
 }
 
@@ -138,6 +262,9 @@ export async function deleteCategory(id: number): Promise<boolean> {
     return false
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey("categories"))
+  cache.delete(getCacheKey("all_products_with_categories"))
   return true
 }
 
@@ -150,7 +277,7 @@ export async function createProduct(
       {
         ...product,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(), // Add this line
+        updated_at: new Date().toISOString(),
       },
     ])
     .select()
@@ -161,6 +288,11 @@ export async function createProduct(
     return null
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey("all_products_with_categories"))
+  if (product.category_id) {
+    cache.delete(getCacheKey(`products_category_${product.category_id}`))
+  }
   return data
 }
 
@@ -183,6 +315,13 @@ export async function updateProduct(
     return null
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey("all_products_with_categories"))
+  if (product.category_id) {
+    cache.delete(getCacheKey(`products_category_${product.category_id}`))
+  }
+  cache.delete(getCacheKey(`product_recipes_${id}`))
+  cache.delete(getCacheKey(`product_packaging_${id}`))
   return data
 }
 
@@ -194,6 +333,10 @@ export async function deleteProduct(id: number): Promise<boolean> {
     return false
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey("all_products_with_categories"))
+  cache.delete(getCacheKey(`product_recipes_${id}`))
+  cache.delete(getCacheKey(`product_packaging_${id}`))
   return true
 }
 
@@ -215,6 +358,8 @@ export async function createRecipe(recipe: Omit<Recipe, "id" | "created_at" | "u
     return null
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey(`product_recipes_${recipe.product_id}`))
   return data
 }
 
@@ -237,6 +382,10 @@ export async function updateRecipe(
     return null
   }
 
+  // Invalidate cache
+  if (recipe.product_id) {
+    cache.delete(getCacheKey(`product_recipes_${recipe.product_id}`))
+  }
   return data
 }
 
@@ -271,6 +420,8 @@ export async function createPackagingUnit(
     return null
   }
 
+  // Invalidate cache
+  cache.delete(getCacheKey(`product_packaging_${packaging.product_id}`))
   return data
 }
 
@@ -293,6 +444,10 @@ export async function updatePackagingUnit(
     return null
   }
 
+  // Invalidate cache
+  if (packaging.product_id) {
+    cache.delete(getCacheKey(`product_packaging_${packaging.product_id}`))
+  }
   return data
 }
 
@@ -309,6 +464,10 @@ export async function deletePackagingUnit(id: number): Promise<boolean> {
 
 // Event Functions
 export async function getEventsFromSupabase(): Promise<Event[]> {
+  const cacheKey = "events"
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   try {
     const { data, error } = await supabase
       .from("events")
@@ -320,7 +479,9 @@ export async function getEventsFromSupabase(): Promise<Event[]> {
       return []
     }
 
-    return data || []
+    const result = data || []
+    setCache(cacheKey, result, 2) // Cache for 2 minutes
+    return result
   } catch (error) {
     console.error("Error fetching events from Supabase:", error)
     return []
@@ -329,6 +490,10 @@ export async function getEventsFromSupabase(): Promise<Event[]> {
 
 // Update the getEventProductsFromSupabase function to properly fetch event products
 export async function getEventProductsFromSupabase(eventId: number): Promise<any[]> {
+  const cacheKey = `event_products_${eventId}`
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   try {
     const { data, error } = await supabase.from("event_products").select("*").eq("event_id", eventId)
 
@@ -363,6 +528,7 @@ export async function getEventProductsFromSupabase(eventId: number): Promise<any
     })
 
     console.log(`Fetched ${transformedData.length} event products for event ID ${eventId}:`, transformedData)
+    setCache(cacheKey, transformedData, 2) // Cache for 2 minutes
     return transformedData
   } catch (error) {
     console.error("Error fetching event products from Supabase:", error)
@@ -372,6 +538,10 @@ export async function getEventProductsFromSupabase(eventId: number): Promise<any
 
 // Update the getEventIngredientsFromSupabase function to work with the correct data structure
 export async function getEventIngredientsFromSupabase(eventId: number): Promise<any[]> {
+  const cacheKey = `event_ingredients_${eventId}`
+  const cached = getCache(cacheKey)
+  if (cached) return cached
+
   try {
     // Get all event products for this event (using the corrected function above)
     const eventProducts = await getEventProductsFromSupabase(eventId)
@@ -434,6 +604,7 @@ export async function getEventIngredientsFromSupabase(eventId: number): Promise<
 
     const result = Object.values(groupedIngredients)
     console.log(`Calculated ${result.length} unique ingredients for event ID ${eventId}:`, result)
+    setCache(cacheKey, result, 2) // Cache for 2 minutes
     return result
   } catch (error) {
     console.error("Error fetching event ingredients from Supabase:", error)

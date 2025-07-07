@@ -33,8 +33,8 @@ export function ProductManagement() {
   const [newCategory, setNewCategory] = useState({ name: "", symbol: "" })
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
 
-  const [newProduct, setNewProduct] = useState({ name: "", category_id: 0, unit: "" })
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [newProduct, setNewProduct] = useState({ name: "", category_id: 0, unit: "", food_type: "" })
+  const [editingProduct, setEditingProduct] = useState<(Product & { food_type?: string | null }) | null>(null)
 
   useEffect(() => {
     loadData()
@@ -118,13 +118,20 @@ export function ProductManagement() {
       return
     }
 
-    const result = await createProduct(newProduct)
+    const productData = {
+      name: newProduct.name,
+      category_id: newProduct.category_id,
+      unit: newProduct.unit,
+      food_type: newProduct.food_type === "unclassified" ? null : newProduct.food_type || null,
+    }
+
+    const result = await createProduct(productData)
     if (result) {
       toast({
         title: "Produkt erstellt",
         description: `Das Produkt "${result.name}" wurde erfolgreich erstellt.`,
       })
-      setNewProduct({ name: "", category_id: 0, unit: "" })
+      setNewProduct({ name: "", category_id: 0, unit: "", food_type: "" })
       loadData()
     }
   }
@@ -143,6 +150,7 @@ export function ProductManagement() {
       name: editingProduct.name,
       category_id: editingProduct.category_id,
       unit: editingProduct.unit,
+      food_type: editingProduct.food_type === "unclassified" ? null : editingProduct.food_type || null,
     })
 
     if (result) {
@@ -165,6 +173,28 @@ export function ProductManagement() {
         })
         loadData()
       }
+    }
+  }
+
+  const getFoodTypeDisplay = (foodType: string | null) => {
+    switch (foodType) {
+      case "food":
+        return "🍔 Food"
+      case "non_food":
+        return "🧽 Non-Food"
+      default:
+        return "❓ Unclassified"
+    }
+  }
+
+  const getFoodTypeColor = (foodType: string | null) => {
+    switch (foodType) {
+      case "food":
+        return "text-green-600"
+      case "non_food":
+        return "text-blue-600"
+      default:
+        return "text-gray-500"
     }
   }
 
@@ -279,7 +309,7 @@ export function ProductManagement() {
 
           <TabsContent value="products">
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Name</label>
                   <Input
@@ -314,6 +344,22 @@ export function ProductManagement() {
                     placeholder="Stück, Kiste, etc."
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Food Type</label>
+                  <Select
+                    value={newProduct.food_type}
+                    onValueChange={(value) => setNewProduct({ ...newProduct, food_type: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Typ auswählen" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unclassified">❓ Unclassified</SelectItem>
+                      <SelectItem value="food">🍔 Food</SelectItem>
+                      <SelectItem value="non_food">🧽 Non-Food</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex items-end">
                   <Button onClick={handleCreateProduct} className="gap-2">
                     <Plus className="h-4 w-4" />
@@ -323,15 +369,16 @@ export function ProductManagement() {
               </div>
 
               <div className="border rounded-md">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 font-medium border-b">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 font-medium border-b">
                   <div>Name</div>
                   <div>Kategorie</div>
                   <div>Einheit</div>
+                  <div>Food Type</div>
                   <div>Aktionen</div>
                 </div>
 
                 {products.map((product) => (
-                  <div key={product.id} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-b last:border-0">
+                  <div key={product.id} className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 border-b last:border-0">
                     {editingProduct && editingProduct.id === product.id ? (
                       <>
                         <Input
@@ -359,6 +406,24 @@ export function ProductManagement() {
                           value={editingProduct.unit}
                           onChange={(e) => setEditingProduct({ ...editingProduct, unit: e.target.value })}
                         />
+                        <Select
+                          value={editingProduct.food_type || "unclassified"}
+                          onValueChange={(value) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              food_type: value === "unclassified" ? null : value,
+                            })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Typ auswählen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unclassified">❓ Unclassified</SelectItem>
+                            <SelectItem value="food">🍔 Food</SelectItem>
+                            <SelectItem value="non_food">🧽 Non-Food</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <div className="flex gap-2">
                           <Button size="sm" variant="outline" onClick={handleUpdateProduct}>
                             <Save className="h-4 w-4" />
@@ -375,8 +440,20 @@ export function ProductManagement() {
                           {product.category?.symbol} {product.category?.name}
                         </div>
                         <div className="flex items-center">{product.unit}</div>
+                        <div className={`flex items-center ${getFoodTypeColor(product.food_type)}`}>
+                          {getFoodTypeDisplay(product.food_type)}
+                        </div>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => setEditingProduct(product)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setEditingProduct({
+                                ...product,
+                                food_type: product.food_type,
+                              })
+                            }
+                          >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -22,6 +22,7 @@ export function ProductManager() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
+  const [foodTypeFilter, setFoodTypeFilter] = useState<string>("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -30,6 +31,7 @@ export function ProductManager() {
     name: "",
     category_id: "",
     unit: "",
+    food_type: "",
   })
 
   useEffect(() => {
@@ -54,11 +56,17 @@ export function ProductManager() {
     }
   }
 
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = categoryFilter === "all" || product.category_id.toString() === categoryFilter
-    return matchesSearch && matchesCategory
-  })
+  const filteredProducts = useMemo(() => {
+    return products.filter((product) => {
+      const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesCategory = categoryFilter === "all" || product.category_id.toString() === categoryFilter
+      const matchesFoodType =
+        foodTypeFilter === "all" ||
+        (foodTypeFilter === "unclassified" && !product.food_type) ||
+        product.food_type === foodTypeFilter
+      return matchesSearch && matchesCategory && matchesFoodType
+    })
+  }, [products, searchQuery, categoryFilter, foodTypeFilter])
 
   const handleAddProduct = async () => {
     if (!formData.name || !formData.category_id || !formData.unit) {
@@ -75,6 +83,7 @@ export function ProductManager() {
         name: formData.name,
         category_id: Number.parseInt(formData.category_id),
         unit: formData.unit,
+        food_type: formData.food_type === "unclassified" ? null : formData.food_type || null,
       })
       if (result) {
         toast({
@@ -82,7 +91,7 @@ export function ProductManager() {
           description: `Produkt "${result.name}" wurde erfolgreich erstellt.`,
         })
         setIsAddDialogOpen(false)
-        setFormData({ name: "", category_id: "", unit: "" })
+        setFormData({ name: "", category_id: "", unit: "", food_type: "" })
         loadData()
       }
     } catch (error) {
@@ -110,6 +119,7 @@ export function ProductManager() {
         name: formData.name,
         category_id: Number.parseInt(formData.category_id),
         unit: formData.unit,
+        food_type: formData.food_type === "unclassified" ? null : formData.food_type || null,
       })
       if (result) {
         toast({
@@ -118,7 +128,7 @@ export function ProductManager() {
         })
         setIsEditDialogOpen(false)
         setCurrentProduct(null)
-        setFormData({ name: "", category_id: "", unit: "" })
+        setFormData({ name: "", category_id: "", unit: "", food_type: "" })
         loadData()
       }
     } catch (error) {
@@ -161,6 +171,7 @@ export function ProductManager() {
       name: product.name,
       category_id: product.category_id.toString(),
       unit: product.unit,
+      food_type: product.food_type || "unclassified",
     })
     setIsEditDialogOpen(true)
   }
@@ -168,6 +179,28 @@ export function ProductManager() {
   const openDeleteDialog = (product: ProductWithCategory) => {
     setCurrentProduct(product)
     setIsDeleteDialogOpen(true)
+  }
+
+  const getFoodTypeDisplay = (foodType: string | null) => {
+    switch (foodType) {
+      case "food":
+        return "🍔 Food"
+      case "non_food":
+        return "🧽 Non-Food"
+      default:
+        return "❓ Unclassified"
+    }
+  }
+
+  const getFoodTypeColor = (foodType: string | null) => {
+    switch (foodType) {
+      case "food":
+        return "text-green-600"
+      case "non_food":
+        return "text-blue-600"
+      default:
+        return "text-gray-500"
+    }
   }
 
   if (loading) {
@@ -204,6 +237,17 @@ export function ProductManager() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={foodTypeFilter} onValueChange={setFoodTypeFilter}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Food Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Alle Typen</SelectItem>
+              <SelectItem value="food">🍔 Food</SelectItem>
+              <SelectItem value="non_food">🧽 Non-Food</SelectItem>
+              <SelectItem value="unclassified">❓ Unclassified</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)} className="gap-2">
           <Plus className="h-4 w-4" />
@@ -223,9 +267,12 @@ export function ProductManager() {
                     {product.category?.symbol} {product.category?.name}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-500">
+                <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
                   <Package className="h-4 w-4" />
                   <span>{product.unit}</span>
+                </div>
+                <div className={`text-sm font-medium ${getFoodTypeColor(product.food_type)}`}>
+                  {getFoodTypeDisplay(product.food_type)}
                 </div>
               </div>
               <div className="flex border-t">
@@ -249,7 +296,7 @@ export function ProductManager() {
 
         {filteredProducts.length === 0 && (
           <div className="col-span-full text-center py-12 text-gray-500">
-            {searchQuery || categoryFilter !== "all"
+            {searchQuery || categoryFilter !== "all" || foodTypeFilter !== "all"
               ? "Keine Produkte gefunden."
               : "Keine Produkte vorhanden. Erstellen Sie ein neues Produkt."}
           </div>
@@ -304,6 +351,24 @@ export function ProductManager() {
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                 placeholder="Stück, Kiste, etc."
               />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="food_type" className="text-sm font-medium">
+                Food Type
+              </label>
+              <Select
+                value={formData.food_type}
+                onValueChange={(value) => setFormData({ ...formData, food_type: value })}
+              >
+                <SelectTrigger id="food_type">
+                  <SelectValue placeholder="Typ auswählen" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unclassified">❓ Unclassified</SelectItem>
+                  <SelectItem value="food">🍔 Food</SelectItem>
+                  <SelectItem value="non_food">🧽 Non-Food</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -364,6 +429,24 @@ export function ProductManager() {
                 placeholder="Stück, Kiste, etc."
               />
             </div>
+            <div className="space-y-2">
+              <label htmlFor="edit-food_type" className="text-sm font-medium">
+                Food Type
+              </label>
+              <Select
+                value={formData.food_type}
+                onValueChange={(value) => setFormData({ ...formData, food_type: value })}
+              >
+                <SelectTrigger id="edit-food_type">
+                  <SelectValue placeholder="Typ auswählen" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unclassified">❓ Unclassified</SelectItem>
+                  <SelectItem value="food">🍔 Food</SelectItem>
+                  <SelectItem value="non_food">🧽 Non-Food</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
@@ -382,11 +465,8 @@ export function ProductManager() {
           </DialogHeader>
           <div className="py-4">
             <p>
-              Sind Sie sicher, dass Sie das Produkt <strong>{currentProduct?.name}</strong> löschen möchten?
-            </p>
-            <p className="text-red-500 mt-2">
-              Diese Aktion kann nicht rückgängig gemacht werden. Alle Rezepte und Verpackungen, die dieses Produkt
-              verwenden, werden ebenfalls gelöscht.
+              Sind Sie sicher, dass Sie das Produkt <strong>"{currentProduct?.name}"</strong> löschen möchten? Diese
+              Aktion kann nicht rückgängig gemacht werden.
             </p>
           </div>
           <DialogFooter>
