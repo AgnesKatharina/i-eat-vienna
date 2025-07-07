@@ -1206,7 +1206,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   }
 
   return (
-    <div className="container mx-auto space-y-6">
+    <div className="container mx-auto space-y-6 px-4 sm:px-6">
       {/* Success Banner */}
       {showSaveSuccess && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
@@ -1220,13 +1220,20 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2 bg-transparent">
-          <ArrowLeft className="h-4 w-4" />
-          Zurück zur Event-Auswahl
-        </Button>
-        <h1 className="text-2xl font-bold">Packliste: {event.name}</h1>
-        <div className="flex gap-2">
+      {/* Header Section - Mobile Optimized */}
+      <div className="flex flex-col space-y-4 mb-6">
+        {/* Back Button and Title Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2 bg-transparent w-fit">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Zurück zur Event-Auswahl</span>
+            <span className="sm:hidden">Zurück</span>
+          </Button>
+          <h1 className="text-xl sm:text-2xl font-bold text-center sm:text-left">Packliste: {event.name}</h1>
+        </div>
+
+        {/* Action Buttons Row - Mobile Stacked */}
+        <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
           <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2 bg-transparent">
             <FileDown className="h-4 w-4" />
             PDF Export
@@ -1257,11 +1264,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       </div>
 
-      {/* Event Information and Status Buttons - Expanded Horizontal Layout */}
+      {/* Event Information and Status Section - Mobile Optimized */}
       <div className="bg-white p-4 rounded-lg shadow-sm">
-        <div className="flex items-center justify-between gap-8">
-          {/* Event Information - Expanded with more space and light grey background */}
-          <div className="flex items-center justify-between flex-1 min-w-0 pr-8 bg-gray-50 p-3 rounded-lg border border-gray-200">
+        {/* Event Information - Mobile Stacked */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 lg:gap-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between flex-1 gap-4 sm:gap-2 bg-gray-50 p-3 rounded-lg border border-gray-200">
             <div className="text-center">
               <p className="text-xs text-gray-500">Typ</p>
               <p className="font-medium text-sm">{event.type}</p>
@@ -1292,9 +1299,9 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             )}
           </div>
 
-          {/* Status Buttons - Slightly Bigger and Wider */}
-          <div className="flex items-center gap-6 flex-shrink-0">
-            {/* Print Ready Status - Bigger */}
+          {/* Status Buttons - Mobile Stacked */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 sm:gap-6 flex-shrink-0">
+            {/* Print Ready Status */}
             <div className="flex items-center gap-3 bg-gradient-to-br from-blue-50 to-indigo-50 px-4 py-3 rounded-lg border border-blue-100">
               <div className="relative">
                 <input
@@ -1368,7 +1375,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               </label>
             </div>
 
-            {/* Finished Status - Bigger */}
+            {/* Finished Status */}
             <div className="flex items-center gap-3 bg-gradient-to-br from-green-50 to-emerald-50 px-4 py-3 rounded-lg border border-green-100">
               <div className="relative">
                 <input
@@ -1442,21 +1449,22 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       </div>
 
-      {/* Category Tabs */}
+      {/* Category Tabs and Clear Button Section */}
       <div className="space-y-4">
         <Tabs value={activeCategory} onValueChange={setActiveCategory} className="w-full">
-          <TabsList className="flex flex-wrap h-auto">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 h-auto gap-1 p-1">
             {packlisteCategories.map((category) => (
-              <TabsTrigger key={category} value={category} className="flex-grow">
-                <span className="mr-2">{getCategoryIcon(category)}</span>
-                {category}
+              <TabsTrigger key={category} value={category} className="flex-col sm:flex-row text-xs sm:text-sm p-2">
+                <span className="text-base sm:mr-2">{getCategoryIcon(category)}</span>
+                <span className="hidden sm:inline">{category}</span>
+                <span className="sm:hidden text-xs">{category.split(" ")[0]}</span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
 
         {/* Clear Category Button for Active Category */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
           <h3 className="text-lg font-semibold flex items-center">
             <span className="mr-2">{getCategoryIcon(activeCategory)}</span>
             {activeCategory}
@@ -1465,7 +1473,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             variant="outline"
             size="sm"
             onClick={() => handleClearCategory(activeCategory)}
-            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 w-fit"
             disabled={
               !Object.keys(selectedProducts).some((productName) => productCategories[productName] === activeCategory)
             }
@@ -1486,8 +1494,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         />
       </div>
 
-      {/* Products Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Products Grid - Mobile Optimized */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {filteredProducts.map((product) => {
           const isSelected = productQuantities[product.name] && productQuantities[product.name] > 0
           const backgroundColorClass = isSelected
@@ -1499,11 +1507,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               key={product.id}
               className={`flex items-center justify-between p-3 border rounded-md h-[72px] transition-all duration-200 ${backgroundColorClass}`}
             >
-              <div className="flex-1">
-                <p className={`font-medium ${isSelected ? "font-semibold" : ""}`}>{product.name}</p>
+              <div className="flex-1 min-w-0">
+                <p className={`font-medium truncate ${isSelected ? "font-semibold" : ""}`}>{product.name}</p>
                 <p className="text-sm text-gray-500">{product.unit}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <Button
                   variant="outline"
                   size="icon"
@@ -1557,7 +1565,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         })}
       </div>
 
-      {/* Two-column layout for Selected Products and Ingredients */}
+      {/* Two-column layout for Selected Products and Ingredients - Mobile Stacked */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
         {/* Selected Products */}
         <div>
@@ -1571,52 +1579,47 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               ) : (
                 <div className="space-y-3">
                   {Object.entries(selectedProducts).map(([product, details]) => (
-                    <div key={product} className="flex items-center space-x-3 p-2 border rounded-md">
-                      <div className="flex items-center gap-2">
+                    <div key={product} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{product}</p>
+                        <p className="text-sm text-gray-500">{productCategories[product] || "Unbekannt"}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-7 w-7 bg-transparent"
+                          className="h-8 w-8 bg-transparent"
                           onClick={() => handleQuantityChange(product, details.quantity - 1)}
                         >
-                          <span className="text-sm">-</span>
+                          <span className="text-lg">-</span>
                         </Button>
-                        <div className="w-8 text-center border rounded py-1 px-1 text-sm">{details.quantity}</div>
+                        <input
+                          type="number"
+                          min="1"
+                          value={details.quantity}
+                          onChange={(e) => {
+                            const newQuantity = Number.parseInt(e.target.value) || 1
+                            handleQuantityChange(product, newQuantity)
+                          }}
+                          className="w-16 text-center border rounded py-1 px-2 h-8 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                         <Button
                           variant="outline"
                           size="icon"
-                          className="h-7 w-7 bg-transparent"
+                          className="h-8 w-8 bg-transparent"
                           onClick={() => handleQuantityChange(product, details.quantity + 1)}
                         >
-                          <span className="text-sm">+</span>
+                          <span className="text-lg">+</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 bg-transparent"
+                          onClick={() => handleDeleteProduct(product)}
+                        >
+                          ×
                         </Button>
                       </div>
-                      <div className="flex-1 truncate">{product}</div>
-                      <div className="text-sm text-gray-500 w-16 text-right">{details.unit}</div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-red-500 hover:text-red-700 h-7 w-7"
-                        onClick={() => handleDeleteProduct(product)}
-                      >
-                        <span className="sr-only">Löschen</span>
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="h-4 w-4"
-                        >
-                          <path d="M3 6h18"></path>
-                          <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"></path>
-                          <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
-                          <line x1="10" y1="11" x2="10" y2="17"></line>
-                          <line x1="14" y1="11" x2="14" y2="17"></line>
-                        </svg>
-                      </Button>
                     </div>
                   ))}
                 </div>
@@ -1636,10 +1639,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 <p className="text-center text-gray-500 py-4">Keine Zutaten berechnet</p>
               ) : (
                 <div className="space-y-6">
-                  {/* Non Food Section First */}
+                  {/* Non Food Ingredients */}
                   {renderIngredientsTable(separatedIngredients.nonFoodIngredients, "Non Food")}
 
-                  {/* Food Section Second */}
+                  {/* Food Ingredients */}
                   {renderIngredientsTable(separatedIngredients.foodIngredients, "Food")}
                 </div>
               )}
@@ -1657,7 +1660,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie fortfahren?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={handleDiscardAndGoBack}>
               Verwerfen
             </Button>
@@ -1671,10 +1674,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           <DialogHeader>
             <DialogTitle>Alle Produkte löschen</DialogTitle>
             <DialogDescription>
-              Sind Sie sicher, dass Sie alle Produkte aus der Kategorie "{categoryToDelete}" löschen möchten?
+              Sind Sie sicher, dass Sie alle Produkte aus der Kategorie "{categoryToDelete}" löschen möchten? Diese
+              Aktion kann nicht rückgängig gemacht werden.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setIsDeleteAllDialogOpen(false)}>
               Abbrechen
             </Button>
@@ -1686,82 +1690,71 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       </Dialog>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Event bearbeiten</DialogTitle>
             <DialogDescription>Bearbeiten Sie die Event-Details.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-name" className="text-right">
-                Name
-              </Label>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Name</Label>
               <Input
                 id="edit-name"
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                className="col-span-3"
+                placeholder="Event Name"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-type" className="text-right">
-                Typ
-              </Label>
+            <div>
+              <Label htmlFor="edit-type">Typ</Label>
               <Select value={editForm.type} onValueChange={(value) => setEditForm({ ...editForm, type: value })}>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue />
+                <SelectTrigger>
+                  <SelectValue placeholder="Event Typ auswählen" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Catering">Catering</SelectItem>
-                  <SelectItem value="Verkauf">Verkauf</SelectItem>
                   <SelectItem value="Event">Event</SelectItem>
+                  <SelectItem value="Hochzeit">Hochzeit</SelectItem>
+                  <SelectItem value="Geburtstag">Geburtstag</SelectItem>
+                  <SelectItem value="Firmenfeier">Firmenfeier</SelectItem>
+                  <SelectItem value="Sonstiges">Sonstiges</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-date" className="text-right">
-                Startdatum
-              </Label>
+            <div>
+              <Label htmlFor="edit-date">Startdatum</Label>
               <Input
                 id="edit-date"
                 type="date"
                 value={editForm.date}
                 onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
-                className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-end-date" className="text-right">
-                Enddatum
-              </Label>
+            <div>
+              <Label htmlFor="edit-end-date">Enddatum (optional)</Label>
               <Input
                 id="edit-end-date"
                 type="date"
                 value={editForm.endDate}
                 onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })}
-                className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-ft" className="text-right">
-                Foodtruck
-              </Label>
+            <div>
+              <Label htmlFor="edit-ft">Foodtruck</Label>
               <Input
                 id="edit-ft"
                 value={editForm.ft}
                 onChange={(e) => setEditForm({ ...editForm, ft: e.target.value })}
-                className="col-span-3"
+                placeholder="Foodtruck"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-ka" className="text-right">
-                Kühlanhänger
-              </Label>
+            <div>
+              <Label htmlFor="edit-ka">Kühlanhänger</Label>
               <Input
                 id="edit-ka"
                 value={editForm.ka}
                 onChange={(e) => setEditForm({ ...editForm, ka: e.target.value })}
-                className="col-span-3"
+                placeholder="Kühlanhänger"
               />
             </div>
           </div>
@@ -1780,8 +1773,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <DialogTitle>Druckvorschau</DialogTitle>
             <DialogDescription>Vorschau der Packliste vor dem Drucken oder PDF-Export.</DialogDescription>
           </DialogHeader>
-          <div className="mt-4">
-            <div className="border rounded-lg p-4 bg-white" dangerouslySetInnerHTML={{ __html: printPreviewContent }} />
+          <div className="border rounded-lg p-4 bg-white">
+            <div dangerouslySetInnerHTML={{ __html: printPreviewContent }} />
           </div>
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setIsPrintPreviewOpen(false)}>
