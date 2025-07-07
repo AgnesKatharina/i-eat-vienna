@@ -423,7 +423,7 @@ export async function generatePdf(
 
     // Header text
     doc.setFont("helvetica", "bold")
-    doc.setFontSize(10)
+    doc.setFontSize(12) // Changed from 10 to 12
     doc.setTextColor(0, 0, 0)
 
     tableColumns.forEach((column) => {
@@ -481,7 +481,7 @@ export async function generatePdf(
           headerHeight,
         )
         doc.setFont("helvetica", "bold")
-        doc.setFontSize(10)
+        doc.setFontSize(12) // Changed from 10 to 12
 
         tableColumns.forEach((column) => {
           const textY = currentY + headerHeight / 2 + 2
@@ -537,7 +537,17 @@ export async function generatePdf(
           const checkboxY = currentY + (rowHeight - checkboxSize) / 2
           doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
         } else {
-          // Text columns
+          // Text columns with different styling
+          if (colIndex === 1 || colIndex === 2) {
+            // Ingredient name and total amount - bold
+            doc.setFont("helvetica", "bold")
+            doc.setTextColor(0, 0, 0)
+          } else if (colIndex === 3) {
+            // Required amount - normal weight, grey color
+            doc.setFont("helvetica", "normal")
+            doc.setTextColor(102, 102, 102)
+          }
+
           if (column.align === "center") {
             doc.text(text, currentX + column.width / 2, textY, { align: "center" })
           } else if (column.align === "right") {

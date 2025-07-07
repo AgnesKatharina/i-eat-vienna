@@ -199,6 +199,10 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           date: eventData?.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
           supplierName: "",
         })
+
+        // Also store initial status values for comparison
+        const initialPrintReady = eventData.print || false
+        const initialFinished = eventData.finished || false
       } catch (error) {
         console.error("Error loading data:", error)
         toast({
@@ -316,19 +320,29 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     // Check if selected products have changed
     const productsChanged = JSON.stringify(selectedProducts) !== JSON.stringify(initialSelectedProducts)
 
-    // Check if event details have changed
+    // Check if event details have changed (including all fields)
     const currentEventDetails = {
       type: event?.type || "Catering",
       name: event?.name || "",
       ft: event?.ft || "",
       ka: event?.ka || "",
       date: event?.date ? new Date(event.date).toISOString().split("T")[0] : "",
+      endDate: event?.end_date ? new Date(event.end_date).toISOString().split("T")[0] : "",
       supplierName: eventDetails.supplierName,
     }
-    const eventDetailsChanged = JSON.stringify(currentEventDetails) !== JSON.stringify(initialEventDetails)
 
-    setHasUnsavedChanges(productsChanged || eventDetailsChanged)
-  }, [selectedProducts, event, eventDetails, initialSelectedProducts, initialEventDetails])
+    const initialEventDetailsWithEndDate = {
+      ...initialEventDetails,
+      endDate: event?.end_date ? new Date(event.end_date).toISOString().split("T")[0] : "",
+    }
+
+    const eventDetailsChanged = JSON.stringify(currentEventDetails) !== JSON.stringify(initialEventDetailsWithEndDate)
+
+    // Check if status flags have changed
+    const statusChanged = (event?.print || false) !== isPrintReady || (event?.finished || false) !== isFinished
+
+    setHasUnsavedChanges(productsChanged || eventDetailsChanged || statusChanged)
+  }, [selectedProducts, event, eventDetails, initialSelectedProducts, initialEventDetails, isPrintReady, isFinished])
 
   // Helper functions
   const getUnitPlural = (quantity: number, unit: string): string => {
@@ -560,8 +574,13 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         ft: event?.ft || "",
         ka: event?.ka || "",
         date: event?.date ? new Date(event.date).toISOString().split("T")[0] : "",
+        endDate: event?.end_date ? new Date(event.end_date).toISOString().split("T")[0] : "",
         supplierName: eventDetails.supplierName,
       })
+      // Update the event state to reflect current status values
+      if (event) {
+        setEvent({ ...event, print: isPrintReady, finished: isFinished })
+      }
       setHasUnsavedChanges(false)
 
       // Show success animation
@@ -829,39 +848,28 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           .ingredients-table th,
           .ingredients-table td {
             border: 1px solid #e5e5e5;
-            padding: 10px;
+            padding: 6px;
             text-align: left;
             vertical-align: middle;
-            height: 40px;
+            height: 25px;
           }
           .ingredients-table th {
             background-color: #f5f5f5;
             font-weight: bold;
-            font-size: 12px;
-          }
-          .ingredients-table .checkbox-cell {
-            width: 30px;
-            text-align: center;
-            padding: 10px 5px;
-          }
-          .ingredients-table .checkbox-cell .checkbox {
-            width: 14px;
-            height: 14px;
-            border: 1px solid #333;
-            margin: 0 auto;
-            display: block;
+            font-size: 14px;
           }
           .ingredients-table .ingredient-name {
             font-size: 14px;
-            font-weight: normal;
+            font-weight: bold;
           }
           .ingredients-table .total-amount {
             font-size: 14px;
-            font-weight: normal;
+            font-weight: bold;
           }
           .ingredients-table .required-amount {
             font-size: 14px;
             font-weight: normal;
+            color: #666;
           }
           .signature-box {
             margin-top: 30px;
@@ -1704,12 +1712,9 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <Button variant="outline" onClick={() => setIsPrintPreviewOpen(false)}>
               Schließen
             </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleExportPdf}>
-                Als PDF exportieren
-              </Button>
-              <Button onClick={handlePrint}>Drucken</Button>
-            </div>
+            <Button onClick={handleExportPdf} className="bg-black hover:bg-gray-800 text-white">
+              Als PDF exportieren
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
