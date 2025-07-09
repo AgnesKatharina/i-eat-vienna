@@ -1259,47 +1259,65 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         </div>
       )}
 
-      {/* Header Section - Mobile Optimized */}
-      <div className="flex flex-col space-y-4 mb-6">
-        {/* Back Button and Title Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <Button variant="outline" onClick={handleBackClick} className="flex items-center gap-2 bg-transparent w-fit">
+      {/* Header Section - Two Row Layout */}
+      <div className="space-y-4 mb-6">
+        {/* Top Row: Back Button Only */}
+        <div className="flex items-center">
+          <Button
+            variant="outline"
+            onClick={handleBackClick}
+            className="flex items-center gap-2 bg-transparent flex-shrink-0"
+          >
             <ArrowLeft className="h-4 w-4" />
             <span className="hidden sm:inline">Zurück zur Event-Auswahl</span>
             <span className="sm:hidden">Zurück</span>
           </Button>
-          <h1 className="text-xl sm:text-2xl font-bold text-center sm:text-left">Packliste: {event.name}</h1>
         </div>
 
-        {/* Action Buttons Row - Mobile Stacked */}
-        <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
-          <Button variant="outline" onClick={handleShowPrintPreview} className="flex items-center gap-2 bg-transparent">
-            <FileDown className="h-4 w-4" />
-            PDF Export
-          </Button>
-          <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2 bg-transparent">
-            <Edit className="h-4 w-4" />
-            Bearbeiten
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className={`flex items-center gap-2 transition-all duration-200 bg-black hover:bg-gray-800 text-white ${
-              saving ? "cursor-not-allowed opacity-75" : ""
-            }`}
-          >
-            {saving ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                Speichert...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                Speichern
-              </>
-            )}
-          </Button>
+        {/* Bottom Row: Event Title and Action Buttons */}
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: Empty space for balance */}
+          <div className="flex-shrink-0 w-0 sm:w-32"></div>
+
+          {/* Center: Event Title */}
+          <div className="flex-1 text-center">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Packliste: {event.name}</h1>
+          </div>
+
+          {/* Right: Action Buttons */}
+          <div className="flex gap-2 flex-shrink-0">
+            <Button
+              variant="outline"
+              onClick={handleShowPrintPreview}
+              className="flex items-center gap-2 bg-transparent"
+            >
+              <FileDown className="h-4 w-4" />
+              <span className="hidden sm:inline">PDF Export</span>
+            </Button>
+            <Button variant="outline" onClick={handleEditEvent} className="flex items-center gap-2 bg-transparent">
+              <Edit className="h-4 w-4" />
+              <span className="hidden sm:inline">Bearbeiten</span>
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className={`flex items-center gap-2 transition-all duration-200 bg-black hover:bg-gray-800 text-white ${
+                saving ? "cursor-not-allowed opacity-75" : ""
+              }`}
+            >
+              {saving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                  <span className="hidden sm:inline">Speichert...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  <span className="hidden sm:inline">Speichern</span>
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1590,7 +1608,48 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      e.target.blur()
+                      const value = e.currentTarget.value.trim()
+                      const originalValue = originalInputValues[product.name] || 0
+
+                      // Clear the temporary values
+                      setTempInputValues((prev) => {
+                        const newTemp = { ...prev }
+                        delete newTemp[product.name]
+                        return newTemp
+                      })
+                      setOriginalInputValues((prev) => {
+                        const newOriginal = { ...prev }
+                        delete newOriginal[product.name]
+                        return newOriginal
+                      })
+
+                      // Handle the validation logic
+                      if (value === "") {
+                        // If empty, restore to original value
+                        if (originalValue === 0) {
+                          // Keep it at 0 if it was originally 0
+                          handleQuantityChange(product.name, 0)
+                        } else {
+                          // Set to 1 if it was originally positive
+                          handleQuantityChange(product.name, 1)
+                        }
+                      } else if (isNaN(Number(value)) || Number(value) < 0) {
+                        // If invalid input, restore to original value or 1
+                        if (originalValue === 0) {
+                          handleQuantityChange(product.name, 0)
+                        } else {
+                          handleQuantityChange(product.name, Math.max(1, originalValue))
+                        }
+                      } else {
+                        // Valid input - allow 0 for deselecting
+                        const quantity = Number.parseInt(value)
+                        if (quantity === 0) {
+                          handleQuantityChange(product.name, 0) // This will remove the product
+                        } else {
+                          handleProductSelect(product.id, product.name, activeCategory, quantity, product.unit, true)
+                        }
+                      }
+                      e.currentTarget.blur()
                     }
                   }}
                   onChange={(e) => {
@@ -1624,7 +1683,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                         // Set to 1 if it was originally positive
                         handleQuantityChange(product.name, 1)
                       }
-                    } else if (isNaN(Number(value)) || Number(value) <= 0) {
+                    } else if (isNaN(Number(value)) || Number(value) < 0) {
                       // If invalid input, restore to original value or 1
                       if (originalValue === 0) {
                         handleQuantityChange(product.name, 0)
@@ -1632,9 +1691,13 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                         handleQuantityChange(product.name, Math.max(1, originalValue))
                       }
                     } else {
-                      // Valid input
+                      // Valid input - allow 0 for deselecting
                       const quantity = Number.parseInt(value)
-                      handleQuantityChange(product.name, quantity)
+                      if (quantity === 0) {
+                        handleQuantityChange(product.name, 0) // This will remove the product
+                      } else {
+                        handleProductSelect(product.id, product.name, activeCategory, quantity, product.unit, true)
+                      }
                     }
                   }}
                   className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -1698,16 +1761,40 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                             const currentValue = details.quantity
                             // Store the original value
                             setOriginalInputValues((prev) => ({ ...prev, [productName]: currentValue }))
-                            // Set the temporary value and select all text - if value is 0, show empty string
+                            // Set the temporary value and select all text
                             setTempInputValues((prev) => ({
                               ...prev,
-                              [productName]: currentValue === 0 ? "" : currentValue.toString(),
+                              [productName]: currentValue.toString(),
                             }))
                             e.target.select()
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
-                              e.target.blur()
+                              const value = e.currentTarget.value.trim()
+                              const originalValue = originalInputValues[productName] || details.quantity
+
+                              // Clear the temporary values
+                              setTempInputValues((prev) => {
+                                const newTemp = { ...prev }
+                                delete newTemp[productName]
+                                return newTemp
+                              })
+                              setOriginalInputValues((prev) => {
+                                const newOriginal = { ...prev }
+                                delete newOriginal[productName]
+                                return newOriginal
+                              })
+
+                              // Handle the validation logic
+                              if (value === "" || isNaN(Number(value)) || Number(value) <= 0) {
+                                // If invalid input, restore to original value (minimum 1 for selected products)
+                                handleQuantityChange(productName, Math.max(1, originalValue))
+                              } else {
+                                // Valid input
+                                const quantity = Number.parseInt(value)
+                                handleQuantityChange(productName, Math.max(1, quantity))
+                              }
+                              e.currentTarget.blur()
                             }
                           }}
                           onChange={(e) => {
@@ -1732,16 +1819,13 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                             })
 
                             // Handle the validation logic
-                            if (value === "") {
-                              // If empty, restore to original value (minimum 1 for selected products)
-                              handleQuantityChange(productName, Math.max(1, originalValue))
-                            } else if (isNaN(Number(value)) || Number(value) <= 0) {
-                              // If invalid input, restore to original value (minimum 1)
+                            if (value === "" || isNaN(Number(value)) || Number(value) <= 0) {
+                              // If invalid input, restore to original value (minimum 1 for selected products)
                               handleQuantityChange(productName, Math.max(1, originalValue))
                             } else {
                               // Valid input
                               const quantity = Number.parseInt(value)
-                              handleQuantityChange(productName, quantity)
+                              handleQuantityChange(productName, Math.max(1, quantity))
                             }
                           }}
                           className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
