@@ -73,6 +73,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const [printPreviewContent, setPrintPreviewContent] = useState<string>("")
   const [showSaveSuccess, setShowSaveSuccess] = useState(false)
 
+  // Add this state after the other state declarations (around line 60)
+  const [tempInputValues, setTempInputValues] = useState<Record<string, string>>({})
+  // Add this state after the tempInputValues state declaration (around line 61)
+  const [originalInputValues, setOriginalInputValues] = useState<Record<string, number>>({})
+
   // Define the correct order of categories for Packliste mode
   const packlisteCategories = ["Essen", "Getränke Pet", "Getränke Glas", "Getränke Spezial", "Equipment", "Kassa"]
   const [activeCategory, setActiveCategory] = useState(packlisteCategories[0])
@@ -977,11 +982,19 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         .signature-box {
           margin-top: 30px;
           border: 1px solid #333;
-          padding: 15px;
-          height: 40px;
+          padding: 20px;
+          min-height: 60px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
         }
         .signature-text {
           font-size: 11px;
+          line-height: 1.6;
+        }
+        .signature-line {
+          margin-top: 10px;
+          padding-top: 5px;
         }
       </style>
     </head>
@@ -1114,7 +1127,9 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     html += `
       <div class="signature-box">
         <div class="signature-text">
-          ${headerInfo}<br>
+          ${headerInfo}
+        </div>
+        <div class="signature-text signature-line">
           Erledigt von: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Datum & Uhrzeit: _____________________
         </div>
       </div>
@@ -1556,28 +1571,71 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                   <span className="text-sm">-</span>
                 </Button>
                 <input
-                  type="number"
-                  min="0"
-                  value={productQuantities[product.name] || 0}
-                  placeholder=""
+                  type="text"
+                  value={
+                    tempInputValues[product.name] !== undefined
+                      ? tempInputValues[product.name]
+                      : productQuantities[product.name]?.toString() || "0"
+                  }
                   onFocus={(e) => {
-                    if (e.target.value === "0") {
-                      e.target.value = ""
-                    }
+                    const currentValue = productQuantities[product.name] || 0
+                    // Store the original value
+                    setOriginalInputValues((prev) => ({ ...prev, [product.name]: currentValue }))
+                    // Set the temporary value and select all text - if value is 0, show empty string
+                    setTempInputValues((prev) => ({
+                      ...prev,
+                      [product.name]: currentValue === 0 ? "" : currentValue.toString(),
+                    }))
+                    e.target.select()
                   }}
-                  onBlur={(e) => {
-                    if (e.target.value === "") {
-                      e.target.value = "0"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.target.blur()
                     }
                   }}
                   onChange={(e) => {
                     const value = e.target.value
+                    // Allow any input including empty string during editing
+                    setTempInputValues((prev) => ({ ...prev, [product.name]: value }))
+                  }}
+                  onBlur={(e) => {
+                    const value = e.target.value.trim()
+                    const originalValue = originalInputValues[product.name] || 0
+
+                    // Clear the temporary values
+                    setTempInputValues((prev) => {
+                      const newTemp = { ...prev }
+                      delete newTemp[product.name]
+                      return newTemp
+                    })
+                    setOriginalInputValues((prev) => {
+                      const newOriginal = { ...prev }
+                      delete newOriginal[product.name]
+                      return newOriginal
+                    })
+
+                    // Handle the validation logic
                     if (value === "") {
-                      // Allow empty input during typing
-                      return
+                      // If empty, restore to original value
+                      if (originalValue === 0) {
+                        // Keep it at 0 if it was originally 0
+                        handleQuantityChange(product.name, 0)
+                      } else {
+                        // Set to 1 if it was originally positive
+                        handleQuantityChange(product.name, 1)
+                      }
+                    } else if (isNaN(Number(value)) || Number(value) <= 0) {
+                      // If invalid input, restore to original value or 1
+                      if (originalValue === 0) {
+                        handleQuantityChange(product.name, 0)
+                      } else {
+                        handleQuantityChange(product.name, Math.max(1, originalValue))
+                      }
+                    } else {
+                      // Valid input
+                      const quantity = Number.parseInt(value)
+                      handleQuantityChange(product.name, quantity)
                     }
-                    const quantity = Number.parseInt(value) || 0
-                    handleQuantityChange(product.name, quantity)
                   }}
                   className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   style={{ MozAppearance: "textfield" }}
@@ -1630,44 +1688,59 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                           <span className="text-sm">-</span>
                         </Button>
                         <input
-                          type="number"
-                          min="1"
-                          value={details.quantity}
+                          type="text"
+                          value={
+                            tempInputValues[productName] !== undefined
+                              ? tempInputValues[productName]
+                              : details.quantity.toString()
+                          }
                           onFocus={(e) => {
-                            // Select all text when focused for easy replacement
+                            const currentValue = details.quantity
+                            // Store the original value
+                            setOriginalInputValues((prev) => ({ ...prev, [productName]: currentValue }))
+                            // Set the temporary value and select all text - if value is 0, show empty string
+                            setTempInputValues((prev) => ({
+                              ...prev,
+                              [productName]: currentValue === 0 ? "" : currentValue.toString(),
+                            }))
                             e.target.select()
                           }}
                           onKeyDown={(e) => {
-                            // Allow backspace, delete, and other control keys
-                            if (e.key === "Backspace" || e.key === "Delete") {
-                              // Don't prevent default - allow deletion
-                              return
-                            }
-                            // Allow Enter to confirm the change
                             if (e.key === "Enter") {
                               e.target.blur()
                             }
                           }}
                           onChange={(e) => {
                             const value = e.target.value
-                            // Allow empty input during editing
-                            if (value === "") {
-                              // Don't update the state yet, just allow empty field
-                              return
-                            }
-                            const quantity = Number.parseInt(value) || 1
-                            if (quantity > 0) {
-                              handleQuantityChange(productName, quantity)
-                            }
+                            // Allow any input including empty string during editing
+                            setTempInputValues((prev) => ({ ...prev, [productName]: value }))
                           }}
                           onBlur={(e) => {
-                            const value = e.target.value
-                            // If field is empty on blur, set to 1 (minimum)
-                            if (value === "" || Number.parseInt(value) <= 0) {
-                              handleQuantityChange(productName, 1)
-                              e.target.value = "1"
+                            const value = e.target.value.trim()
+                            const originalValue = originalInputValues[productName] || details.quantity
+
+                            // Clear the temporary values
+                            setTempInputValues((prev) => {
+                              const newTemp = { ...prev }
+                              delete newTemp[productName]
+                              return newTemp
+                            })
+                            setOriginalInputValues((prev) => {
+                              const newOriginal = { ...prev }
+                              delete newOriginal[productName]
+                              return newOriginal
+                            })
+
+                            // Handle the validation logic
+                            if (value === "") {
+                              // If empty, restore to original value (minimum 1 for selected products)
+                              handleQuantityChange(productName, Math.max(1, originalValue))
+                            } else if (isNaN(Number(value)) || Number(value) <= 0) {
+                              // If invalid input, restore to original value (minimum 1)
+                              handleQuantityChange(productName, Math.max(1, originalValue))
                             } else {
-                              const quantity = Number.parseInt(value) || 1
+                              // Valid input
+                              const quantity = Number.parseInt(value)
                               handleQuantityChange(productName, quantity)
                             }
                           }}
