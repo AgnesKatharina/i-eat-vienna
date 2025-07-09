@@ -92,14 +92,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   // Add state for ingredient food classifications
   const [ingredientFoodTypes, setIngredientFoodTypes] = useState<Record<string, string>>({})
 
-  // Edit form state
+  // Edit form state - Updated with arrays for FT and KA
   const [editForm, setEditForm] = useState({
     name: "",
     type: "",
     date: "",
     endDate: "",
-    ft: "",
-    ka: "",
+    ft: [] as string[],
+    ka: [] as string[],
   })
 
   // Memoized filtered products for better performance
@@ -216,14 +216,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           setEditDate(eventData.date ? new Date(eventData.date) : undefined)
           setEditEndDate(eventData.end_date ? new Date(eventData.end_date) : undefined)
 
-          // Set edit form initial values
+          // Set edit form initial values with arrays for FT and KA
           setEditForm({
             name: eventData.name || "",
             type: eventData.type || "Catering",
             date: eventData.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
             endDate: eventData.end_date ? new Date(eventData.end_date).toISOString().split("T")[0] : "",
-            ft: eventData.ft || "",
-            ka: eventData.ka || "",
+            ft: eventData.ft ? eventData.ft.split(" & ") : [],
+            ka: eventData.ka ? eventData.ka.split(" & ") : [],
           })
         }
 
@@ -665,8 +665,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       type: event.type || "Catering",
       date: event.date ? new Date(event.date).toISOString().split("T")[0] : "",
       endDate: event.end_date ? new Date(event.end_date).toISOString().split("T")[0] : "",
-      ft: event.ft || "",
-      ka: event.ka || "",
+      ft: event.ft ? event.ft.split(" & ") : [],
+      ka: event.ka ? event.ka.split(" & ") : [],
     })
 
     setIsEditDialogOpen(true)
@@ -681,8 +681,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         type: editForm.type,
         date: editForm.date ? new Date(editForm.date).toISOString() : null,
         end_date: editForm.endDate ? new Date(editForm.endDate).toISOString() : null,
-        ft: editForm.ft,
-        ka: editForm.ka,
+        ft: editForm.ft.length > 0 ? editForm.ft.join(" & ") : null,
+        ka: editForm.ka.length > 0 ? editForm.ka.join(" & ") : null,
       })
 
       if (updated) {
@@ -833,270 +833,294 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       }
     })
 
+    // Build header info with proper formatting
+    let headerInfo = `${eventDetails.name} | ${eventDetails.type}`
+
+    // Add date information
+    if (eventDetails.date) {
+      if (eventDetails.endDate && eventDetails.endDate !== eventDetails.date) {
+        headerInfo += ` | ${eventDetails.date} - ${eventDetails.endDate}`
+      } else {
+        headerInfo += ` | ${eventDetails.date}`
+      }
+    }
+
+    // Add FT if exists
+    if (eventDetails.ft && eventDetails.ft !== "none") {
+      headerInfo += ` | ${eventDetails.ft}`
+    }
+
+    // Add KA if exists
+    if (eventDetails.ka && eventDetails.ka !== "none") {
+      headerInfo += ` | ${eventDetails.ka}`
+    }
+
     // Generate HTML
     let html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>Packliste: ${eventDetails.name}</title>
-        <style>
-          @media print {
-            @page { margin: 1cm; }
-            body { margin: 0; }
-          }
-          body {
-            font-family: Arial, sans-serif;
-            font-size: 12px;
-            line-height: 1.4;
-            margin: 20px;
-          }
-          .header {
-            border-bottom: 2px solid #333;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-          }
-          .title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 5px;
-          }
-          .event-info {
-            font-size: 14px;
-            color: #666;
-          }
-          .products-section {
-            margin-bottom: 30px;
-          }
-          .category-grid {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 20px;
-            margin-bottom: 20px;
-          }
-          .category {
-            break-inside: avoid;
-          }
-          .category-title {
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 8px;
-            padding-bottom: 3px;
-            border-bottom: 1px solid #ccc;
-          }
-          .product-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 4px;
-            font-size: 11px;
-          }
-          .checkbox {
-            width: 12px;
-            height: 12px;
-            border: 1px solid #333;
-            margin-right: 6px;
-            flex-shrink: 0;
-          }
-          .ingredients-section {
-            page-break-before: always;
-            margin-top: 30px;
-          }
-          .ingredients-title {
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #333;
-            padding-bottom: 5px;
-          }
-          .ingredients-subsection {
-            margin-bottom: 25px;
-          }
-          .ingredients-subtitle {
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            padding-bottom: 3px;
-            border-bottom: 1px solid #666;
-          }
-          .ingredients-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-          }
-          .ingredients-table th,
-          .ingredients-table td {
-            border: 1px solid #e5e5e5;
-            padding: 6px;
-            text-align: left;
-            vertical-align: middle;
-            height: 25px;
-          }
-          .ingredients-table th {
-            background-color: #f5f5f5;
-            font-weight: bold;
-            font-size: 14px;
-          }
-          .ingredients-table .ingredient-name {
-            font-size: 14px;
-            font-weight: bold;
-          }
-          .ingredients-table .total-amount {
-            font-size: 14px;
-            font-weight: bold;
-          }
-          .ingredients-table .required-amount {
-            font-size: 14px;
-            font-weight: normal;
-            color: #666;
-          }
-          .signature-box {
-            margin-top: 30px;
-            border: 1px solid #333;
-            padding: 15px;
-            height: 40px;
-          }
-          .signature-text {
-            font-size: 11px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="title">Packliste: ${eventDetails.name}</div>
-          <div class="event-info">
-            ${eventDetails.type} | ${eventDetails.date || "Kein Datum"}
-            ${eventDetails.ft ? ` | ${eventDetails.ft}` : ""}
-            ${eventDetails.ka ? ` | ${eventDetails.ka}` : ""}
-          </div>
-        </div>
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Packliste: ${eventDetails.name}</title>
+      <style>
+        @media print {
+          @page { margin: 1cm; }
+          body { margin: 0; }
+        }
+        body {
+          font-family: Arial, sans-serif;
+          font-size: 12px;
+          line-height: 1.4;
+          margin: 20px;
+        }
+        .header {
+          border-bottom: 2px solid #333;
+          padding-bottom: 10px;
+          margin-bottom: 20px;
+        }
+        .title {
+          font-size: 18px;
+          font-weight: bold;
+          margin-bottom: 5px;
+        }
+        .event-info {
+          font-size: 14px;
+          color: #666;
+        }
+        .products-section {
+          margin-bottom: 30px;
+        }
+        .category-grid {
+          display: grid;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .category {
+          break-inside: avoid;
+        }
+        .category-title {
+          font-weight: bold;
+          font-size: 14px;
+          margin-bottom: 8px;
+          padding-bottom: 3px;
+          border-bottom: 1px solid #ccc;
+        }
+        .product-item {
+          display: flex;
+          align-items: center;
+          margin-bottom: 4px;
+          font-size: 11px;
+        }
+        .product-item span.bold-product {
+          font-weight: bold;
+        }
+        .checkbox {
+          width: 12px;
+          height: 12px;
+          border: 1px solid #333;
+          margin-right: 6px;
+          flex-shrink: 0;
+        }
+        .ingredients-section {
+          page-break-before: always;
+          margin-top: 30px;
+        }
+        .ingredients-title {
+          font-size: 16px;
+          font-weight: bold;
+          margin-bottom: 15px;
+          border-bottom: 2px solid #333;
+          padding-bottom: 5px;
+        }
+        .ingredients-subsection {
+          margin-bottom: 25px;
+        }
+        .ingredients-subtitle {
+          font-size: 14px;
+          font-weight: bold;
+          margin-bottom: 10px;
+          padding-bottom: 3px;
+          border-bottom: 1px solid #666;
+        }
+        .ingredients-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 15px;
+        }
+        .ingredients-table th,
+        .ingredients-table td {
+          border: 1px solid #e5e5e5;
+          padding: 6px;
+          text-align: left;
+          vertical-align: middle;
+          height: 25px;
+        }
+        .ingredients-table th {
+          background-color: #f5f5f5;
+          font-weight: bold;
+          font-size: 14px;
+        }
+        .ingredients-table .ingredient-name {
+          font-size: 14px;
+          font-weight: bold;
+        }
+        .ingredients-table .total-amount {
+          font-size: 14px;
+          font-weight: bold;
+        }
+        .ingredients-table .required-amount {
+          font-size: 14px;
+          font-weight: normal;
+          color: #666;
+        }
+        .signature-box {
+          margin-top: 30px;
+          border: 1px solid #333;
+          padding: 15px;
+          height: 40px;
+        }
+        .signature-text {
+          font-size: 11px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="title">Packliste</div>
+        <div class="event-info">${headerInfo}</div>
+      </div>
 
-        <div class="products-section">
-          <div class="category-grid">
-    `
+      <div class="products-section">
+        <div class="category-grid">
+  `
 
     // Add products by category
     sortedCategories.forEach((category) => {
       const products = productsByCategory[category].sort((a, b) => a.name.localeCompare(b.name))
+      const isBoldColumn = category === "Equipment" || category === "Getränke Glas" || category === "Getränke Pet"
+
       html += `
-            <div class="category">
-              <div class="category-title">${category}</div>
-      `
+          <div class="category">
+            <div class="category-title">${category}</div>
+    `
 
       products.forEach((product) => {
         html += `
-              <div class="product-item">
-                <div class="checkbox"></div>
-                <span>${product.quantity}x ${product.name}</span>
-              </div>
-        `
+            <div class="product-item">
+              <div class="checkbox"></div>
+              <span class="${isBoldColumn ? "bold-product" : ""}">${product.quantity}x ${product.name}</span>
+            </div>
+      `
       })
 
       html += `
-            </div>
-      `
+          </div>
+    `
     })
 
     html += `
-          </div>
         </div>
-    `
+      </div>
+  `
 
     // Add ingredients section if there are any
     if (Object.keys(calculatedIngredients).length > 0) {
       html += `
-        <div class="ingredients-section">
-          <div class="ingredients-title">Zutaten</div>
-      `
+      <div class="ingredients-section">
+        <div class="ingredients-title">Zutaten</div>
+    `
 
       // Non Food section first
       if (Object.keys(nonFoodIngredients).length > 0) {
         html += `
-          <div class="ingredients-subsection">
-            <div class="ingredients-subtitle">Non Food</div>
-            <table class="ingredients-table">
-              <thead>
-                <tr>
-                  <th class="checkbox-cell"></th>
-                  <th>Zutat</th>
-                  <th>Gesamtmenge</th>
-                  <th>Benötigte Menge</th>
-                </tr>
-              </thead>
-              <tbody>
-        `
+        <div class="ingredients-subsection">
+          <div class="ingredients-subtitle">Non Food</div>
+          <table class="ingredients-table">
+            <thead>
+              <tr>
+                <th class="checkbox-cell"></th>
+                <th>Zutat</th>
+                <th>Gesamtmenge</th>
+                <th>Benötigte Menge</th>
+              </tr>
+            </thead>
+            <tbody>
+      `
 
         Object.entries(nonFoodIngredients)
           .sort(([a], [b]) => a.localeCompare(b))
           .forEach(([ingredient, details]) => {
             html += `
-                <tr>
-                  <td class="checkbox-cell"><div class="checkbox"></div></td>
-                  <td class="ingredient-name">${ingredient}</td>
-                  <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
-                  <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
-                </tr>
-            `
+              <tr>
+                <td class="checkbox-cell"><div class="checkbox"></div></td>
+                <td class="ingredient-name">${ingredient}</td>
+                <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
+                <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
+              </tr>
+          `
           })
 
         html += `
-              </tbody>
-            </table>
-          </div>
-        `
+            </tbody>
+          </table>
+        </div>
+      `
       }
 
       // Food section second
       if (Object.keys(foodIngredients).length > 0) {
         html += `
-          <div class="ingredients-subsection">
-            <div class="ingredients-subtitle">Food</div>
-            <table class="ingredients-table">
-              <thead>
-                <tr>
-                  <th class="checkbox-cell"></th>
-                  <th>Zutat</th>
-                  <th>Gesamtmenge</th>
-                  <th>Benötigte Menge</th>
-                </tr>
-              </thead>
-              <tbody>
-        `
+        <div class="ingredients-subsection">
+          <div class="ingredients-subtitle">Food</div>
+          <table class="ingredients-table">
+            <thead>
+              <tr>
+                <th class="checkbox-cell"></th>
+                <th>Zutat</th>
+                <th>Gesamtmenge</th>
+                <th>Benötigte Menge</th>
+              </tr>
+            </thead>
+            <tbody>
+      `
 
         Object.entries(foodIngredients)
           .sort(([a], [b]) => a.localeCompare(b))
           .forEach(([ingredient, details]) => {
             html += `
-                <tr>
-                  <td class="checkbox-cell"><div class="checkbox"></div></td>
-                  <td class="ingredient-name">${ingredient}</td>
-                  <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
-                  <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
-                </tr>
-            `
+              <tr>
+                <td class="checkbox-cell"><div class="checkbox"></div></td>
+                <td class="ingredient-name">${ingredient}</td>
+                <td class="total-amount">${details.packagingCount} ${getUnitPlural(details.packagingCount, details.packaging)} à ${formatWeight(details.amountPerPackage, details.unit)}</td>
+                <td class="required-amount">${formatWeight(details.totalAmount, details.unit)}</td>
+              </tr>
+          `
           })
 
         html += `
-              </tbody>
-            </table>
-          </div>
-        `
+            </tbody>
+          </table>
+        </div>
+      `
       }
 
       html += `
-        </div>
-      `
+      </div>
+    `
     }
 
-    // Add signature box
+    // Add signature box with updated footer format
     html += `
-        <div class="signature-box">
-          <div class="signature-text">
-            Erledigt von: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Datum & Uhrzeit: _____________________
-          </div>
+      <div class="signature-box">
+        <div class="signature-text">
+          ${headerInfo}<br>
+          Erledigt von: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Datum & Uhrzeit: _____________________
         </div>
-      </body>
-      </html>
-    `
+      </div>
+    </body>
+    </html>
+  `
 
     return html
   }
@@ -1206,7 +1230,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   }
 
   return (
-    <div className="container mx-auto space-y-6 px-4 sm:px-6">
+    <div className="max-w-[1600px] mx-auto space-y-6 px-4 sm:px-6 lg:px-8">
       {/* Success Banner */}
       {showSaveSuccess && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-in slide-in-from-top-2 duration-300">
@@ -1494,8 +1518,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         />
       </div>
 
-      {/* Products Grid - Mobile Optimized */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Products Grid - Improved for better name visibility */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
         {filteredProducts.map((product) => {
           const isSelected = productQuantities[product.name] && productQuantities[product.name] > 0
           const backgroundColorClass = isSelected
@@ -1505,21 +1529,31 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           return (
             <div
               key={product.id}
-              className={`flex items-center justify-between p-3 border rounded-md h-[72px] transition-all duration-200 ${backgroundColorClass}`}
+              className={`flex items-center justify-between p-3 border rounded-md min-h-[80px] transition-all duration-200 ${backgroundColorClass}`}
             >
-              <div className="flex-1 min-w-0">
-                <p className={`font-medium truncate ${isSelected ? "font-semibold" : ""}`}>{product.name}</p>
-                <p className="text-sm text-gray-500">{product.unit}</p>
+              <div className="flex-1 min-w-0 mr-3">
+                <p
+                  className={`font-medium text-sm leading-tight break-words ${isSelected ? "font-semibold" : ""}`}
+                  title={product.name}
+                  style={{
+                    wordBreak: "break-word",
+                    hyphens: "auto",
+                    overflowWrap: "break-word",
+                  }}
+                >
+                  {product.name}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">{product.unit}</p>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 bg-transparent"
+                  className="h-7 w-7 bg-transparent"
                   onClick={() => handleProductSelect(product.id, product.name, activeCategory, -1, product.unit)}
                   disabled={!productQuantities[product.name] || productQuantities[product.name] <= 0}
                 >
-                  <span className="text-lg">-</span>
+                  <span className="text-sm">-</span>
                 </Button>
                 <input
                   type="number"
@@ -1527,128 +1561,38 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                   value={productQuantities[product.name] || 0}
                   placeholder=""
                   onFocus={(e) => {
-                    // Clear the field if it shows 0
                     if (e.target.value === "0") {
                       e.target.value = ""
                     }
                   }}
                   onBlur={(e) => {
-                    // If field is empty on blur, set it back to 0
                     if (e.target.value === "") {
                       e.target.value = "0"
-                      handleDeleteProduct(product.name)
                     }
                   }}
                   onChange={(e) => {
-                    const newQuantity = Number.parseInt(e.target.value) || 0
-                    if (newQuantity <= 0) {
-                      handleDeleteProduct(product.name)
-                    } else {
-                      handleProductSelect(product.id, product.name, activeCategory, newQuantity, product.unit, true)
+                    const value = e.target.value
+                    if (value === "") {
+                      // Allow empty input during typing
+                      return
                     }
+                    const quantity = Number.parseInt(value) || 0
+                    handleQuantityChange(product.name, quantity)
                   }}
-                  className={`w-16 text-center border rounded py-1 px-2 h-8 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                    isSelected ? "font-semibold bg-white" : ""
-                  }`}
+                  className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 bg-transparent"
+                  className="h-7 w-7 bg-transparent"
                   onClick={() => handleProductSelect(product.id, product.name, activeCategory, 1, product.unit)}
                 >
-                  <span className="text-lg">+</span>
+                  <span className="text-sm">+</span>
                 </Button>
               </div>
             </div>
           )
         })}
-      </div>
-
-      {/* Two-column layout for Selected Products and Ingredients - Mobile Stacked */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-        {/* Selected Products */}
-        <div>
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="p-4 border-b">
-              <h2 className="text-xl font-semibold">Ausgewählte Produkte</h2>
-            </div>
-            <div className="p-4">
-              {Object.keys(selectedProducts).length === 0 ? (
-                <p className="text-center text-gray-500 py-4">Keine Produkte ausgewählt</p>
-              ) : (
-                <div className="space-y-3">
-                  {Object.entries(selectedProducts).map(([product, details]) => (
-                    <div key={product} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{product}</p>
-                        <p className="text-sm text-gray-500">{productCategories[product] || "Unbekannt"}</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 bg-transparent"
-                          onClick={() => handleQuantityChange(product, details.quantity - 1)}
-                        >
-                          <span className="text-lg">-</span>
-                        </Button>
-                        <input
-                          type="number"
-                          min="1"
-                          value={details.quantity}
-                          onChange={(e) => {
-                            const newQuantity = Number.parseInt(e.target.value) || 1
-                            handleQuantityChange(product, newQuantity)
-                          }}
-                          className="w-16 text-center border rounded py-1 px-2 h-8 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 bg-transparent"
-                          onClick={() => handleQuantityChange(product, details.quantity + 1)}
-                        >
-                          <span className="text-lg">+</span>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 bg-transparent"
-                          onClick={() => handleDeleteProduct(product)}
-                        >
-                          ×
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Ingredients */}
-        <div>
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="p-4 border-b">
-              <h2 className="text-xl font-semibold">Zutaten</h2>
-            </div>
-            <div className="p-4">
-              {Object.keys(calculatedIngredients).length === 0 ? (
-                <p className="text-center text-gray-500 py-4">Keine Zutaten berechnet</p>
-              ) : (
-                <div className="space-y-6">
-                  {/* Non Food Ingredients */}
-                  {renderIngredientsTable(separatedIngredients.nonFoodIngredients, "Non Food")}
-
-                  {/* Food Ingredients */}
-                  {renderIngredientsTable(separatedIngredients.foodIngredients, "Food")}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Dialogs */}
@@ -1660,11 +1604,11 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               Sie haben ungespeicherte Änderungen. Möchten Sie diese speichern, bevor Sie fortfahren?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex gap-2">
+          <DialogFooter>
             <Button variant="outline" onClick={handleDiscardAndGoBack}>
               Verwerfen
             </Button>
-            <Button onClick={handleSaveAndGoBack}>Speichern und zurück</Button>
+            <Button onClick={handleSaveAndGoBack}>Speichern und fortfahren</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1674,16 +1618,15 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           <DialogHeader>
             <DialogTitle>Alle Produkte löschen</DialogTitle>
             <DialogDescription>
-              Sind Sie sicher, dass Sie alle Produkte aus der Kategorie "{categoryToDelete}" löschen möchten? Diese
-              Aktion kann nicht rückgängig gemacht werden.
+              Sind Sie sicher, dass Sie alle Produkte aus der Kategorie "{categoryToDelete}" löschen möchten?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex gap-2">
+          <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteAllDialogOpen(false)}>
               Abbrechen
             </Button>
             <Button variant="destructive" onClick={confirmDeleteAllInCategory}>
-              Alle löschen
+              Löschen
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1693,7 +1636,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Event bearbeiten</DialogTitle>
-            <DialogDescription>Bearbeiten Sie die Event-Details.</DialogDescription>
+            <DialogDescription>Bearbeiten Sie die Event-Details</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -1702,27 +1645,24 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 id="edit-name"
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                placeholder="Event Name"
               />
             </div>
             <div>
               <Label htmlFor="edit-type">Typ</Label>
               <Select value={editForm.type} onValueChange={(value) => setEditForm({ ...editForm, type: value })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Event Typ auswählen" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Catering">Catering</SelectItem>
                   <SelectItem value="Event">Event</SelectItem>
-                  <SelectItem value="Hochzeit">Hochzeit</SelectItem>
-                  <SelectItem value="Geburtstag">Geburtstag</SelectItem>
-                  <SelectItem value="Firmenfeier">Firmenfeier</SelectItem>
-                  <SelectItem value="Sonstiges">Sonstiges</SelectItem>
+                  <SelectItem value="Markt">Markt</SelectItem>
+                  <SelectItem value="Privat">Privat</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label htmlFor="edit-date">Startdatum</Label>
+              <Label htmlFor="edit-date">Datum</Label>
               <Input
                 id="edit-date"
                 type="date"
@@ -1740,22 +1680,48 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
               />
             </div>
             <div>
-              <Label htmlFor="edit-ft">Foodtruck</Label>
-              <Input
-                id="edit-ft"
-                value={editForm.ft}
-                onChange={(e) => setEditForm({ ...editForm, ft: e.target.value })}
-                placeholder="Foodtruck"
-              />
+              <Label>Foodtruck</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {["FT1", "FT2", "FT3", "FT4", "FT5", "Indoor"].map((ft) => (
+                  <label key={ft} className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editForm.ft.includes(ft)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEditForm({ ...editForm, ft: [...editForm.ft, ft] })
+                        } else {
+                          setEditForm({ ...editForm, ft: editForm.ft.filter((f) => f !== ft) })
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{ft}</span>
+                  </label>
+                ))}
+              </div>
             </div>
             <div>
-              <Label htmlFor="edit-ka">Kühlanhänger</Label>
-              <Input
-                id="edit-ka"
-                value={editForm.ka}
-                onChange={(e) => setEditForm({ ...editForm, ka: e.target.value })}
-                placeholder="Kühlanhänger"
-              />
+              <Label>Kühlanhänger</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {["KA1", "KA2", "KA3", "KA4", "KA5"].map((ka) => (
+                  <label key={ka} className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editForm.ka.includes(ka)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEditForm({ ...editForm, ka: [...editForm.ka, ka] })
+                        } else {
+                          setEditForm({ ...editForm, ka: editForm.ka.filter((k) => k !== ka) })
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{ka}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1768,22 +1734,19 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       </Dialog>
 
       <Dialog open={isPrintPreviewOpen} onOpenChange={setIsPrintPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Druckvorschau</DialogTitle>
-            <DialogDescription>Vorschau der Packliste vor dem Drucken oder PDF-Export.</DialogDescription>
+            <DialogDescription>Vorschau der Packliste vor dem PDF-Export</DialogDescription>
           </DialogHeader>
           <div className="border rounded-lg p-4 bg-white">
             <div dangerouslySetInnerHTML={{ __html: printPreviewContent }} />
           </div>
-          <DialogFooter className="flex gap-2">
+          <DialogFooter>
             <Button variant="outline" onClick={() => setIsPrintPreviewOpen(false)}>
               Schließen
             </Button>
-            <Button variant="outline" onClick={handlePrint}>
-              Drucken
-            </Button>
-            <Button onClick={handleExportPdf}>PDF herunterladen</Button>
+            <Button onClick={handleExportPdf}>PDF exportieren</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

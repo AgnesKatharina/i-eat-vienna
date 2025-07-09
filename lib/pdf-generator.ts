@@ -1,7 +1,14 @@
 "use client"
 
-import { jsPDF } from "jspdf"
+import jsPDF from "jspdf"
+import "jspdf-autotable"
 import type { SelectedProduct, CalculatedIngredient, EventDetails } from "@/lib/types"
+
+declare module "jspdf" {
+  interface jsPDF {
+    autoTable: (options: any) => jsPDF
+  }
+}
 
 interface TableColumn {
   header: string
@@ -173,6 +180,8 @@ export async function generatePdf(
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   let currentPageNumber = 1
+  const maxColumns = 3 // Declare maxColumns before using it
+  const numCategories = 6 // Declare numCategories before using it
 
   const getTitle = () => {
     switch (mode) {
@@ -190,7 +199,9 @@ export async function generatePdf(
   const drawHeader = () => {
     doc.setFontSize(10)
     doc.setTextColor(128, 128, 128)
-    let headerText = `${eventDetails.type} | ${eventDetails.name}`
+
+    // Build header text: Event name, Event type, date (and end date if exists), FT, KA
+    let headerText = `${eventDetails.name} | ${eventDetails.type}`
 
     // Add start date
     if (eventDetails.date) {
@@ -202,9 +213,15 @@ export async function generatePdf(
       }
     }
 
-    if (eventDetails.ft && eventDetails.ft !== "none") headerText += ` | ${eventDetails.ft}`
-    if (eventDetails.ka && eventDetails.ka !== "none") headerText += ` | ${eventDetails.ka}`
-    if (mode === "bestellung" && eventDetails.supplierName) headerText += ` | Mitarbeiter: ${eventDetails.supplierName}`
+    // Add FT if exists and not 'none'
+    if (eventDetails.ft && eventDetails.ft !== "none") {
+      headerText += ` | ${eventDetails.ft}`
+    }
+
+    // Add KA if exists and not 'none'
+    if (eventDetails.ka && eventDetails.ka !== "none") {
+      headerText += ` | ${eventDetails.ka}`
+    }
 
     doc.text(headerText, 20, 12)
     doc.line(20, 15, pageWidth - 20, 15)
@@ -213,7 +230,9 @@ export async function generatePdf(
   const drawFooter = () => {
     doc.setFontSize(10)
     doc.setTextColor(128, 128, 128)
-    let footerText = `${eventDetails.type} | ${eventDetails.name}`
+
+    // Build footer text: Event name, Event type, date (and end date if exists), FT, KA
+    let footerText = `${eventDetails.name} | ${eventDetails.type}`
 
     // Add start date
     if (eventDetails.date) {
@@ -223,6 +242,16 @@ export async function generatePdf(
       if (eventDetails.endDate && eventDetails.endDate !== eventDetails.date && eventDetails.endDate.trim() !== "") {
         footerText += ` - ${eventDetails.endDate}`
       }
+    }
+
+    // Add FT if exists and not 'none'
+    if (eventDetails.ft && eventDetails.ft !== "none") {
+      footerText += ` | ${eventDetails.ft}`
+    }
+
+    // Add KA if exists and not 'none'
+    if (eventDetails.ka && eventDetails.ka !== "none") {
+      footerText += ` | ${eventDetails.ka}`
     }
 
     doc.text(footerText, 20, pageHeight - 10)
@@ -282,20 +311,19 @@ export async function generatePdf(
   })
 
   const sortedCategories = Object.keys(productsByCategory).sort()
-  const numCategories = sortedCategories.length
-  const maxColumns = Math.min(numCategories, 6)
   const columnWidth = (pageWidth - 40) / maxColumns
   const xPositions = Array.from({ length: maxColumns }, (_, i) => 20 + i * columnWidth)
   let yPosition = 35
 
   // Only draw products if there are any
   if (Object.keys(selectedProducts).length > 0) {
-    // Draw category headers
+    // Draw category headers - all bold
     doc.setFont("helvetica", "bold")
     doc.setFontSize(12)
     for (let i = 0; i < maxColumns; i++) {
       if (i < sortedCategories.length) {
-        doc.text(sortedCategories[i], xPositions[i], yPosition)
+        const category = sortedCategories[i]
+        doc.text(category, xPositions[i], yPosition)
       }
     }
     doc.setFont("helvetica", "normal")
@@ -318,12 +346,13 @@ export async function generatePdf(
         doc.setTextColor(0, 0, 0)
         yPosition = 35
 
-        // Redraw category headers on new page
+        // Redraw category headers on new page - all bold
         doc.setFont("helvetica", "bold")
         doc.setFontSize(12)
         for (let i = 0; i < maxColumns; i++) {
           if (i < sortedCategories.length) {
-            doc.text(sortedCategories[i], xPositions[i], yPosition)
+            const category = sortedCategories[i]
+            doc.text(category, xPositions[i], yPosition)
           }
         }
         doc.setFont("helvetica", "normal")
@@ -341,6 +370,13 @@ export async function generatePdf(
           // Draw checkbox
           doc.rect(xPositions[colIndex], yPosition - 3, 3, 3)
 
+          // Set font to bold for specific categories' products
+          if (category === "Equipment" || category === "Getränke Glas" || category === "Getränke Pet") {
+            doc.setFont("helvetica", "bold")
+          } else {
+            doc.setFont("helvetica", "normal")
+          }
+
           // Draw product text
           const productText = `${product.quantity}x ${product.name}`
           const maxTextWidth = columnWidth - 8
@@ -357,6 +393,8 @@ export async function generatePdf(
           doc.text(displayText, xPositions[colIndex] + 5, yPosition)
         }
       }
+      // Reset font to normal for the next row to avoid carry-over styling
+      doc.setFont("helvetica", "normal")
       yPosition += 6
     }
   }
@@ -508,6 +546,14 @@ export async function generatePdf(
               doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
             } else {
               const textY = currentY + 5
+
+              // Make "Zutat" (index 1) and "Gesamtmenge" (index 2) columns bold
+              if (index === 1 || index === 2) {
+                doc.setFont("helvetica", "bold")
+              } else {
+                doc.setFont("helvetica", "normal")
+              }
+
               if (index === 3) {
                 // Right align for required amount
                 doc.text(text, currentX + colWidths[index] - 2, textY, { align: "right" })
@@ -540,24 +586,43 @@ export async function generatePdf(
   let fileName = ""
   if (mode === "packliste") {
     const eventName = eventDetails.name ? eventDetails.name.replace(/[^a-zA-Z0-9]/g, "_") : "Event"
+    const eventType = eventDetails.type ? eventDetails.type.replace(/[^a-zA-Z0-9]/g, "_") : "Event"
 
     if (eventDetails.date) {
-      // Convert date from DD.MM.YYYY to DD-MM-YYYY format
-      let dateForFilename = eventDetails.date
+      // Convert date from DD.MM.YYYY to YYYY-MM-DD format
+      let formattedDate = eventDetails.date
       if (eventDetails.date.includes(".")) {
         const dateParts = eventDetails.date.split(".")
         if (dateParts.length === 3) {
-          dateForFilename = `${dateParts[0]}-${dateParts[1]}-${dateParts[2]}`
+          formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`
         }
       }
-      fileName = `Packliste_${eventName}_${dateForFilename}`
+      fileName = `${formattedDate}_${eventName}_${eventType}`
     } else {
-      fileName = `Packliste_${eventName}_Kein-Datum`
+      fileName = `nodate_${eventName}_${eventType}`
     }
   } else if (mode === "bestellung" && eventDetails.supplierName) {
-    fileName = `Bestellung_${eventDetails.supplierName}_${eventDetails.date || "Kein-Datum"}`
+    // Convert date if available
+    let formattedDate = "nodate"
+    if (eventDetails.date && eventDetails.date.includes(".")) {
+      const dateParts = eventDetails.date.split(".")
+      if (dateParts.length === 3) {
+        formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`
+      }
+    }
+    fileName = `${formattedDate}_${eventDetails.supplierName}_Bestellung`
   } else {
-    fileName = `${getTitle()}_${eventDetails.name || "Dokument"}_${eventDetails.date || "Kein-Datum"}`
+    // Convert date if available
+    let formattedDate = "nodate"
+    if (eventDetails.date && eventDetails.date.includes(".")) {
+      const dateParts = eventDetails.date.split(".")
+      if (dateParts.length === 3) {
+        formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`
+      }
+    }
+    const eventName = eventDetails.name ? eventDetails.name.replace(/[^a-zA-Z0-9]/g, "_") : "Event"
+    const eventType = eventDetails.type ? eventDetails.type.replace(/[^a-zA-Z0-9]/g, "_") : "Event"
+    fileName = `${formattedDate}_${eventName}_${eventType}_${getTitle()}`
   }
 
   // Clean filename
@@ -657,7 +722,9 @@ export function generateSimplePacklistePDF(
   )
 
   // Save
-  const filename = `packliste-${eventName.toLowerCase().replace(/\s+/g, "-")}.pdf`
+  const today = new Date()
+  const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+  const filename = `${formattedDate}_${eventName.replace(/\s+/g, "_")}_Packliste.pdf`
   doc.save(filename)
 }
 
@@ -737,6 +804,8 @@ export function generateSimpleShoppingListPDF(
   )
 
   // Save
-  const filename = `einkaufsliste-${eventName.toLowerCase().replace(/\s+/g, "-")}.pdf`
+  const today = new Date()
+  const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+  const filename = `${formattedDate}_${eventName.replace(/\s+/g, "_")}_Einkaufsliste.pdf`
   doc.save(filename)
 }
