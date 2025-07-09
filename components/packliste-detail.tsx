@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle } from "lucide-react"
+import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle, Trash2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -1533,7 +1533,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             >
               <div className="flex-1 min-w-0 mr-3">
                 <p
-                  className={`font-medium text-sm leading-tight break-words ${isSelected ? "font-semibold" : ""}`}
+                  className={`font-semibold text-base leading-tight break-words ${isSelected ? "font-bold" : ""}`}
                   title={product.name}
                   style={{
                     wordBreak: "break-word",
@@ -1579,7 +1579,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                     const quantity = Number.parseInt(value) || 0
                     handleQuantityChange(product.name, quantity)
                   }}
-                  className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  style={{ MozAppearance: "textfield" }}
                 />
                 <Button
                   variant="outline"
@@ -1593,6 +1594,184 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             </div>
           )
         })}
+      </div>
+
+      {/* Selected Products and Ingredients Section - Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Column - Selected Products */}
+        <div className="bg-white p-6 rounded-lg shadow-sm">
+          <h2 className="text-xl font-bold mb-4">Ausgewählte Produkte</h2>
+          {Object.keys(selectedProducts).length === 0 ? (
+            <p className="text-gray-500 text-center py-8">Keine Produkte ausgewählt</p>
+          ) : (
+            <div className="space-y-2">
+              {Object.entries(selectedProducts)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([productName, details]) => (
+                  <div
+                    key={productName}
+                    className="flex items-center justify-between p-3 border border-gray-200 rounded-md hover:bg-gray-50"
+                  >
+                    <div className="flex-1 min-w-0 mr-3">
+                      <p className="font-medium text-base leading-tight break-words" title={productName}>
+                        {productName}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Quantity Controls */}
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7 bg-transparent"
+                          onClick={() => handleQuantityChange(productName, details.quantity - 1)}
+                          disabled={details.quantity <= 1}
+                        >
+                          <span className="text-sm">-</span>
+                        </Button>
+                        <input
+                          type="number"
+                          min="1"
+                          value={details.quantity}
+                          onFocus={(e) => {
+                            // Select all text when focused for easy replacement
+                            e.target.select()
+                          }}
+                          onKeyDown={(e) => {
+                            // Allow backspace, delete, and other control keys
+                            if (e.key === "Backspace" || e.key === "Delete") {
+                              // Don't prevent default - allow deletion
+                              return
+                            }
+                            // Allow Enter to confirm the change
+                            if (e.key === "Enter") {
+                              e.target.blur()
+                            }
+                          }}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            // Allow empty input during editing
+                            if (value === "") {
+                              // Don't update the state yet, just allow empty field
+                              return
+                            }
+                            const quantity = Number.parseInt(value) || 1
+                            if (quantity > 0) {
+                              handleQuantityChange(productName, quantity)
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = e.target.value
+                            // If field is empty on blur, set to 1 (minimum)
+                            if (value === "" || Number.parseInt(value) <= 0) {
+                              handleQuantityChange(productName, 1)
+                              e.target.value = "1"
+                            } else {
+                              const quantity = Number.parseInt(value) || 1
+                              handleQuantityChange(productName, quantity)
+                            }
+                          }}
+                          className="w-12 h-7 text-center text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          style={{ MozAppearance: "textfield" }}
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7 bg-transparent"
+                          onClick={() => handleQuantityChange(productName, details.quantity + 1)}
+                        >
+                          <span className="text-sm">+</span>
+                        </Button>
+                      </div>
+                      {/* Delete Button */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                        onClick={() => handleDeleteProduct(productName)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right Column - Ingredients */}
+        <div className="bg-white p-6 rounded-lg shadow-sm">
+          <h2 className="text-xl font-bold mb-6">Zutaten</h2>
+          {Object.keys(calculatedIngredients).length === 0 ? (
+            <p className="text-gray-500 text-center py-8">Keine Zutaten berechnet</p>
+          ) : (
+            <>
+              {/* Non Food Ingredients */}
+              {Object.keys(separatedIngredients.nonFoodIngredients).length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold mb-4 pb-2 border-b border-gray-300 text-gray-700">Non Food</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b-2 border-gray-300">
+                          <th className="text-left p-3 font-semibold text-gray-700">Zutat</th>
+                          <th className="text-left p-3 font-semibold text-gray-700">Gesamtmenge</th>
+                          <th className="text-left p-3 font-semibold text-gray-700">Verpackung</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(separatedIngredients.nonFoodIngredients)
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([ingredient, details]) => (
+                            <tr key={ingredient} className="border-b border-gray-200 hover:bg-gray-50">
+                              <td className="p-3 font-medium text-gray-900">{ingredient}</td>
+                              <td className="p-3 text-gray-700">{formatWeight(details.totalAmount, details.unit)}</td>
+                              <td className="p-3 text-gray-700">
+                                {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
+                                {formatWeight(details.amountPerPackage, details.unit)}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Food Ingredients */}
+              {Object.keys(separatedIngredients.foodIngredients).length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4 pb-2 border-b border-gray-300 text-gray-700">Food</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b-2 border-gray-300">
+                          <th className="text-left p-3 font-semibold text-gray-700">Zutat</th>
+                          <th className="text-left p-3 font-semibold text-gray-700">Gesamtmenge</th>
+                          <th className="text-left p-3 font-semibold text-gray-700">Verpackung</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(separatedIngredients.foodIngredients)
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([ingredient, details]) => (
+                            <tr key={ingredient} className="border-b border-gray-200 hover:bg-gray-50">
+                              <td className="p-3 font-medium text-gray-900">{ingredient}</td>
+                              <td className="p-3 text-gray-700">{formatWeight(details.totalAmount, details.unit)}</td>
+                              <td className="p-3 text-gray-700">
+                                {details.packagingCount} {getUnitPlural(details.packagingCount, details.packaging)} à{" "}
+                                {formatWeight(details.amountPerPackage, details.unit)}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Dialogs */}
@@ -1655,9 +1834,8 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Catering">Catering</SelectItem>
-                  <SelectItem value="Event">Event</SelectItem>
-                  <SelectItem value="Markt">Markt</SelectItem>
-                  <SelectItem value="Privat">Privat</SelectItem>
+                  <SelectItem value="Verkauf">Verkauf</SelectItem>
+                  <SelectItem value="Lieferung">Lieferung</SelectItem>
                 </SelectContent>
               </Select>
             </div>
