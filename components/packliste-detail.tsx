@@ -1969,7 +1969,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       </Dialog>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Event bearbeiten</DialogTitle>
             <DialogDescription>Bearbeiten Sie die Event-Details</DialogDescription>

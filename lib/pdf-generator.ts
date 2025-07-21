@@ -39,8 +39,8 @@ class CustomTable {
     this.currentY = startY
     this.pageHeight = doc.internal.pageSize.getHeight()
     this.margin = 20
-    this.rowHeight = 10 // Increased row height for better alignment
-    this.headerHeight = 10
+    this.rowHeight = 12 // Increased row height for font size 14
+    this.headerHeight = 12 // Increased header height for font size 14
   }
 
   private drawHeader() {
@@ -57,11 +57,11 @@ class CustomTable {
 
     // Header text
     this.doc.setFont("helvetica", "bold")
-    this.doc.setFontSize(10)
+    this.doc.setFontSize(14) // Increased to 14
     this.doc.setTextColor(0, 0, 0)
 
     this.columns.forEach((column) => {
-      const textY = this.currentY + this.headerHeight / 2 + 2
+      const textY = this.currentY + this.headerHeight / 2 + 3 // Adjusted for larger font
 
       if (column.align === "center") {
         this.doc.text(column.header, currentX + column.width / 2, textY, { align: "center" })
@@ -98,16 +98,16 @@ class CustomTable {
 
     // Row text
     this.doc.setFont("helvetica", "normal")
-    this.doc.setFontSize(12) // Increased font size for ingredient values
+    this.doc.setFontSize(14) // Increased to 14
     this.doc.setTextColor(0, 0, 0)
 
     this.columns.forEach((column, index) => {
       const text = row[index.toString()] || ""
-      const textY = this.currentY + this.rowHeight / 2 + 3 // Better vertical centering
+      const textY = this.currentY + this.rowHeight / 2 + 4 // Adjusted for larger font
 
       if (index === 0) {
         // Checkbox column - draw checkbox centered
-        const checkboxSize = 3
+        const checkboxSize = 4 // Slightly larger checkbox for better proportion
         const checkboxX = currentX + (column.width - checkboxSize) / 2
         const checkboxY = this.currentY + (this.rowHeight - checkboxSize) / 2
         this.doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
@@ -180,8 +180,8 @@ export async function generatePdf(
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   let currentPageNumber = 1
-  const maxColumns = 3 // Declare maxColumns before using it
-  const numCategories = 6 // Declare numCategories before using it
+  const maxColumns = 3
+  const numCategories = 6
 
   const getTitle = () => {
     switch (mode) {
@@ -399,16 +399,17 @@ export async function generatePdf(
     }
   }
 
-  // Add ingredients table if available
-  if (Object.keys(calculatedIngredients).length > 0) {
+  // Force a single page break after the product categories section if it exists
+  if (Object.keys(selectedProducts).length > 0) {
     doc.addPage()
     currentPageNumber++
-
-    // Draw header and footer on ingredients page
     drawHeader()
     drawFooter()
     doc.setTextColor(0, 0, 0)
+  }
 
+  // Add ingredients table if available
+  if (Object.keys(calculatedIngredients).length > 0) {
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
     doc.text("Zutaten", 20, 25)
@@ -453,7 +454,7 @@ export async function generatePdf(
         startX,
         currentY,
         colWidths.reduce((sum, w) => sum + w, 0),
-        10,
+        12, // Increased header height for font size 14
         "F",
       )
 
@@ -463,12 +464,12 @@ export async function generatePdf(
         startX,
         currentY,
         colWidths.reduce((sum, w) => sum + w, 0),
-        10,
+        12, // Increased header height for font size 14
       )
 
       // Header text
       doc.setFont("helvetica", "bold")
-      doc.setFontSize(10)
+      doc.setFontSize(14) // Changed to 14
       const headers = ["", "Zutat", "Gesamtmenge", "Benötigte Menge"]
 
       headers.forEach((header, index) => {
@@ -476,34 +477,82 @@ export async function generatePdf(
           // Checkbox column - no text
         } else if (index === 3) {
           // Right align for "Benötigte Menge"
-          doc.text(header, currentX + colWidths[index] - 2, currentY + 6, { align: "right" })
+          doc.text(header, currentX + colWidths[index] - 2, currentY + 8, { align: "right" }) // Adjusted Y position
         } else {
-          doc.text(header, currentX + 2, currentY + 6)
+          doc.text(header, currentX + 2, currentY + 8) // Adjusted Y position
         }
 
         if (currentX > startX) {
-          doc.line(currentX, currentY, currentX, currentY + 10)
+          doc.line(currentX, currentY, currentX, currentY + 12) // Adjusted height
         }
         currentX += colWidths[index]
       })
 
-      currentY += 10
+      currentY += 12 // Adjusted for new header height
 
       // Table rows
       doc.setFont("helvetica", "normal")
-      doc.setFontSize(9)
+      doc.setFontSize(14) // Changed to 14
 
       Object.entries(ingredients)
         .sort(([a], [b]) => a.localeCompare(b))
         .forEach(([ingredient, details], rowIndex) => {
-          // Check if we need a new page
-          if (currentY + 8 > pageHeight - 30) {
+          // Check if we need a new page - less conservative margin for signature
+          if (currentY + 12 > pageHeight - 40) {
+            // Changed from -80 to -40
+            // Increased row height check
             doc.addPage()
             currentPageNumber++
             drawHeader()
             drawFooter()
             doc.setTextColor(0, 0, 0)
-            currentY = 35
+            currentY = 25
+
+            // Only redraw table header on new page, not section title
+            currentX = startX
+
+            // Header background
+            doc.setFillColor(230, 230, 230)
+            doc.rect(
+              startX,
+              currentY,
+              colWidths.reduce((sum, w) => sum + w, 0),
+              12,
+              "F",
+            )
+
+            // Header border
+            doc.setDrawColor(0, 0, 0)
+            doc.rect(
+              startX,
+              currentY,
+              colWidths.reduce((sum, w) => sum + w, 0),
+              12,
+            )
+
+            // Header text
+            doc.setFont("helvetica", "bold")
+            doc.setFontSize(14)
+
+            headers.forEach((header, index) => {
+              if (index === 0) {
+                // Checkbox column - no text
+              } else if (index === 3) {
+                // Right align for "Benötigte Menge"
+                doc.text(header, currentX + colWidths[index] - 2, currentY + 8, { align: "right" })
+              } else {
+                doc.text(header, currentX + 2, currentY + 8)
+              }
+
+              if (currentX > startX) {
+                doc.line(currentX, currentY, currentX, currentY + 12)
+              }
+              currentX += colWidths[index]
+            })
+
+            currentY += 12
+            doc.setFont("helvetica", "normal")
+            doc.setFontSize(14)
           }
 
           currentX = startX
@@ -515,7 +564,7 @@ export async function generatePdf(
               startX,
               currentY,
               colWidths.reduce((sum, w) => sum + w, 0),
-              8,
+              12, // Increased row height for font size 14
               "F",
             )
           }
@@ -526,7 +575,7 @@ export async function generatePdf(
             startX,
             currentY,
             colWidths.reduce((sum, w) => sum + w, 0),
-            8,
+            12, // Increased row height for font size 14
           )
 
           // Row content
@@ -540,12 +589,12 @@ export async function generatePdf(
           rowData.forEach((text, index) => {
             if (index === 0) {
               // Draw checkbox
-              const checkboxSize = 3
+              const checkboxSize = 4 // Slightly larger for better proportion
               const checkboxX = currentX + (colWidths[index] - checkboxSize) / 2
-              const checkboxY = currentY + (8 - checkboxSize) / 2
+              const checkboxY = currentY + (12 - checkboxSize) / 2 // Adjusted for new row height
               doc.rect(checkboxX, checkboxY, checkboxSize, checkboxSize)
             } else {
-              const textY = currentY + 5
+              const textY = currentY + 8 // Adjusted for new row height and font size
 
               // Make "Zutat" (index 1) and "Gesamtmenge" (index 2) columns bold
               if (index === 1 || index === 2) {
@@ -563,12 +612,12 @@ export async function generatePdf(
             }
 
             if (currentX > startX) {
-              doc.line(currentX, currentY, currentX, currentY + 8)
+              doc.line(currentX, currentY, currentX, currentY + 12) // Adjusted height
             }
             currentX += colWidths[index]
           })
 
-          currentY += 8
+          currentY += 12 // Adjusted for new row height
         })
 
       currentY += 10 // Space after section
@@ -578,7 +627,7 @@ export async function generatePdf(
     // Draw Non Food section first
     currentY = drawIngredientsSection(nonFoodIngredients, "Non Food")
 
-    // Draw Food section second
+    // Draw Food section second - no forced page break, let it flow naturally
     currentY = drawIngredientsSection(foodIngredients, "Food")
   }
 

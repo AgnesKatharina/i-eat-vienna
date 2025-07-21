@@ -653,7 +653,7 @@ export function EventSelector() {
 
       {/* Edit Event Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Event bearbeiten</DialogTitle>
             <DialogDescription>Ändern Sie die Details des Events und klicken Sie auf Speichern.</DialogDescription>
