@@ -50,18 +50,18 @@ export function LandingPage() {
           <p className="text-slate-700">Einkaufen starten</p>
         </div>
 
-        {/* Bestellung Card */}
+        {/* Nachbestellung Card */}
         <div
           className="bg-green-100 rounded-xl p-8 flex flex-col items-center text-center cursor-pointer hover:shadow-lg transition-all hover:-translate-y-1"
-          onClick={() => handleNavigate("bestellungen")}
+          onClick={() => handleNavigate("nachbestellungen")}
         >
           <ClipboardListIcon className="w-16 h-16 mb-6 text-slate-800" />
-          <h3 className="text-2xl font-semibold mb-4 text-slate-800">Bestellung</h3>
+          <h3 className="text-2xl font-semibold mb-4 text-slate-800">Nachbestellung</h3>
           <p className="text-slate-700">Nachbestellung erstellen</p>
         </div>
       </div>
 
-      {/* Add the new Manage Products Card */}
+      {/* Manage Products Card */}
       <div className="mt-8 w-full max-w-6xl">
         <div
           className="bg-purple-100 rounded-xl p-8 flex flex-col items-center text-center cursor-pointer hover:shadow-lg transition-all hover:-translate-y-1"
