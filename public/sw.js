@@ -1,5 +1,5 @@
 const CACHE_NAME = "i-eat-vienna-v1"
-const urlsToCache = ["/", "/app", "/offline", "/icon-192x192.png", "/icon-512x512.png"]
+const urlsToCache = ["/", "/app", "/app/packliste", "/app/nachbestellungen", "/offline", "/manifest.json"]
 
 // Install event
 self.addEventListener("install", (event) => {
@@ -40,7 +40,7 @@ self.addEventListener("push", (event) => {
     try {
       notificationData = { ...notificationData, ...event.data.json() }
     } catch (error) {
-      console.error("Error parsing notification data:", error)
+      console.error("Error parsing push data:", error)
     }
   }
 
@@ -98,11 +98,11 @@ self.addEventListener("notificationclick", (event) => {
   )
 })
 
-// Background sync (optional - for offline functionality)
+// Background sync for offline actions
 self.addEventListener("sync", (event) => {
   if (event.tag === "background-sync") {
     event.waitUntil(
-      // Handle background sync tasks
+      // Handle background sync logic here
       console.log("Background sync triggered"),
     )
   }

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient()
 
-    // Mark all subscriptions for this user as inactive
+    // Mark subscription as inactive
     const { error } = await supabase
       .from("push_subscriptions")
       .update({
@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
       .eq("user_email", userEmail)
 
     if (error) {
-      console.error("Error unsubscribing:", error)
-      return NextResponse.json({ error: "Failed to unsubscribe" }, { status: 500 })
+      console.error("Error updating subscription:", error)
+      return NextResponse.json({ error: "Failed to update subscription" }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

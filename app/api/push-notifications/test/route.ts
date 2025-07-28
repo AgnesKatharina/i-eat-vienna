@@ -10,20 +10,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user is admin
-    const adminEmails = ["agnes@ieatvienna.at", "office@ieatvienna.at"]
-    if (!adminEmails.includes(userEmail)) {
+    if (userEmail !== "agnes@ieatvienna.at" && userEmail !== "office@ieatvienna.at") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
 
-    const success = await sendTestNotification(userEmail)
+    await sendTestNotification(userEmail)
 
-    if (success) {
-      return NextResponse.json({ success: true })
-    } else {
-      return NextResponse.json({ error: "Failed to send test notification" }, { status: 500 })
-    }
+    return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error in test notification route:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Error sending test notification:", error)
+    return NextResponse.json({ error: "Failed to send test notification" }, { status: 500 })
   }
 }
