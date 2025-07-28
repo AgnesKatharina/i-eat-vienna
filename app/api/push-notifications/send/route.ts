@@ -1,39 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
-import webpush from "web-push"
-import { sendNotificationToAdmins } from "@/lib/push-notification-service"
-
-// Configure web-push with VAPID keys
-webpush.setVapidDetails(
-  "mailto:office@ieatvienna.at",
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "",
-  process.env.VAPID_PRIVATE_KEY || "",
-)
-
-const ADMIN_EMAILS = ["agnes@ieatvienna.at", "office@ieatvienna.at"]
-
-interface NotificationData {
-  type: "nachbestellung_created"
-  data: {
-    eventName: string
-    totalItems: number
-    createdBy?: string
-  }
-}
+import { sendNotificationToAdmins } from "@/lib/push-notification-server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { title, message, url } = await request.json()
+    const { type, data } = await request.json()
 
-    if (!title || !message) {
-      return NextResponse.json({ error: "Missing title or message" }, { status: 400 })
+    if (type === "nachbestellung_created") {
+      await sendNotificationToAdmins({
+        title: "Neue Nachbestellung",
+        message: `Neue Nachbestellung für ${data.eventName} mit ${data.totalItems} Artikeln`,
+        url: "/app/nachbestellungen",
+        icon: "/icon-192x192.png",
+      })
     }
-
-    await sendNotificationToAdmins({
-      title,
-      message,
-      url: url || "/app/nachbestellungen",
-      icon: "/icon-192x192.png",
-    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

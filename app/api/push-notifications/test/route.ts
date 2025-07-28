@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { sendTestNotification } from "@/lib/push-notification-service"
+import { sendTestNotification } from "@/lib/push-notification-server"
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,11 +7,6 @@ export async function POST(request: NextRequest) {
 
     if (!userEmail) {
       return NextResponse.json({ error: "Missing userEmail" }, { status: 400 })
-    }
-
-    // Check if user is admin
-    if (userEmail !== "agnes@ieatvienna.at" && userEmail !== "office@ieatvienna.at") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
 
     await sendTestNotification(userEmail)

@@ -9,14 +9,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing subscription or userEmail" }, { status: 400 })
     }
 
-    // Check if user is admin
-    if (userEmail !== "agnes@ieatvienna.at" && userEmail !== "office@ieatvienna.at") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
-    }
-
     const supabase = createClient()
 
-    // Upsert the subscription
     const { error } = await supabase.from("push_subscriptions").upsert(
       {
         user_email: userEmail,
@@ -32,7 +26,7 @@ export async function POST(request: NextRequest) {
     )
 
     if (error) {
-      console.error("Error saving subscription:", error)
+      console.error("Error saving push subscription:", error)
       return NextResponse.json({ error: "Failed to save subscription" }, { status: 500 })
     }
 

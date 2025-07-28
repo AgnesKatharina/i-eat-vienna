@@ -1,5 +1,13 @@
 const CACHE_NAME = "i-eat-vienna-v1"
-const urlsToCache = ["/", "/app", "/app/packliste", "/app/nachbestellungen", "/offline", "/manifest.json"]
+const urlsToCache = [
+  "/",
+  "/app",
+  "/app/packliste",
+  "/app/nachbestellungen",
+  "/app/einkaufen",
+  "/offline",
+  "/manifest.json",
+]
 
 // Install event
 self.addEventListener("install", (event) => {
@@ -9,22 +17,22 @@ self.addEventListener("install", (event) => {
 // Fetch event
 self.addEventListener("fetch", (event) => {
   event.respondWith(
-    caches
-      .match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request)
-      })
-      .catch(() => {
-        // If both cache and network fail, show offline page
-        if (event.request.destination === "document") {
-          return caches.match("/offline")
-        }
-      }),
+    caches.match(event.request).then((response) => {
+      // Return cached version or fetch from network
+      return (
+        response ||
+        fetch(event.request).catch(() => {
+          // If both cache and network fail, show offline page
+          if (event.request.destination === "document") {
+            return caches.match("/offline")
+          }
+        })
+      )
+    }),
   )
 })
 
-// Push event - handle incoming push notifications
+// Push event handler
 self.addEventListener("push", (event) => {
   console.log("Push event received:", event)
 
@@ -38,7 +46,8 @@ self.addEventListener("push", (event) => {
 
   if (event.data) {
     try {
-      notificationData = { ...notificationData, ...event.data.json() }
+      const data = event.data.json()
+      notificationData = { ...notificationData, ...data }
     } catch (error) {
       console.error("Error parsing push data:", error)
     }
@@ -48,9 +57,10 @@ self.addEventListener("push", (event) => {
     body: notificationData.message,
     icon: notificationData.icon,
     badge: notificationData.badge,
+    vibrate: [100, 50, 100],
     data: {
       url: notificationData.url,
-      timestamp: notificationData.timestamp || Date.now(),
+      timestamp: Date.now(),
     },
     actions: [
       {
@@ -63,13 +73,13 @@ self.addEventListener("push", (event) => {
       },
     ],
     requireInteraction: true,
-    vibrate: [200, 100, 200],
+    tag: "nachbestellung-notification",
   }
 
   event.waitUntil(self.registration.showNotification(notificationData.title, notificationOptions))
 })
 
-// Notification click event
+// Notification click handler
 self.addEventListener("notificationclick", (event) => {
   console.log("Notification clicked:", event)
 
@@ -85,7 +95,7 @@ self.addEventListener("notificationclick", (event) => {
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       // Check if there's already a window/tab open with the target URL
       for (const client of clientList) {
-        if (client.url.includes(urlToOpen) && "focus" in client) {
+        if (client.url === urlToOpen && "focus" in client) {
           return client.focus()
         }
       }
@@ -98,11 +108,11 @@ self.addEventListener("notificationclick", (event) => {
   )
 })
 
-// Background sync for offline actions
+// Background sync (for offline functionality)
 self.addEventListener("sync", (event) => {
   if (event.tag === "background-sync") {
     event.waitUntil(
-      // Handle background sync logic here
+      // Handle background sync tasks
       console.log("Background sync triggered"),
     )
   }

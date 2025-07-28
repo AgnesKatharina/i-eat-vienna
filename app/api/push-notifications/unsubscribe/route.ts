@@ -11,18 +11,11 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient()
 
-    // Mark subscription as inactive
-    const { error } = await supabase
-      .from("push_subscriptions")
-      .update({
-        active: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_email", userEmail)
+    const { error } = await supabase.from("push_subscriptions").update({ active: false }).eq("user_email", userEmail)
 
     if (error) {
-      console.error("Error updating subscription:", error)
-      return NextResponse.json({ error: "Failed to update subscription" }, { status: 500 })
+      console.error("Error removing push subscription:", error)
+      return NextResponse.json({ error: "Failed to remove subscription" }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

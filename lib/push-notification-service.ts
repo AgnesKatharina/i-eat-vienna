@@ -1,12 +1,14 @@
-import webpush from "web-push"
-import { createClient } from "@/lib/supabase-server"
+import { createClient } from "@/lib/supabase-client"
 
-// Configure web-push
-webpush.setVapidDetails(
-  "mailto:office@ieatvienna.at",
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!,
-)
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ""
+
+export interface PushSubscription {
+  endpoint: string
+  keys: {
+    p256dh: string
+    auth: string
+  }
+}
 
 export interface NotificationPayload {
   title: string
@@ -15,100 +17,153 @@ export interface NotificationPayload {
   icon?: string
 }
 
-export async function sendNotificationToAdmins(payload: NotificationPayload) {
-  const supabase = createClient()
+// Convert VAPID key from base64url to Uint8Array
+const base64UrlToUint8Array = (base64UrlData: string): Uint8Array => {
+  const padding = "=".repeat((4 - (base64UrlData.length % 4)) % 4)
+  const base64 = (base64UrlData + padding).replace(/-/g, "+").replace(/_/g, "/")
 
+  const rawData = atob(base64)
+  const buffer = new Uint8Array(rawData.length)
+
+  for (let i = 0; i < rawData.length; ++i) {
+    buffer[i] = rawData.charCodeAt(i)
+  }
+
+  return buffer
+}
+
+// Client-side functions
+export const subscribeToPushNotifications = async (): Promise<PushSubscription | null> => {
   try {
-    // Get all admin subscriptions
-    const { data: subscriptions, error } = await supabase
-      .from("push_subscriptions")
-      .select("*")
-      .in("user_email", ["agnes@ieatvienna.at", "office@ieatvienna.at"])
-      .eq("active", true)
-
-    if (error) {
-      console.error("Error fetching subscriptions:", error)
-      return
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      console.warn("Push notifications are not supported")
+      return null
     }
 
-    if (!subscriptions || subscriptions.length === 0) {
-      console.log("No admin subscriptions found")
-      return
+    const registration = await navigator.serviceWorker.getRegistration()
+    if (!registration) {
+      console.warn("Service worker not registered")
+      return null
     }
 
-    // Send notification to each subscription
-    const promises = subscriptions.map(async (sub) => {
-      try {
-        const pushSubscription = {
-          endpoint: sub.endpoint,
-          keys: {
-            p256dh: sub.p256dh,
-            auth: sub.auth,
-          },
-        }
+    // Check if already subscribed
+    const existingSubscription = await registration.pushManager.getSubscription()
+    if (existingSubscription) {
+      return existingSubscription.toJSON() as PushSubscription
+    }
 
-        const notificationPayload = JSON.stringify({
-          title: payload.title,
-          message: payload.message,
-          url: payload.url || "/app/nachbestellungen",
-          icon: payload.icon || "/icon-192x192.png",
-          badge: "/icon-192x192.png",
-          timestamp: Date.now(),
-        })
-
-        await webpush.sendNotification(pushSubscription, notificationPayload)
-        console.log(`Notification sent to ${sub.user_email}`)
-      } catch (error) {
-        console.error(`Failed to send notification to ${sub.user_email}:`, error)
-
-        // If subscription is invalid, mark it as inactive
-        if (error.statusCode === 410 || error.statusCode === 404) {
-          await supabase.from("push_subscriptions").update({ active: false }).eq("id", sub.id)
-        }
-      }
+    // Subscribe to push notifications
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64UrlToUint8Array(VAPID_PUBLIC_KEY),
     })
 
-    await Promise.allSettled(promises)
+    return subscription.toJSON() as PushSubscription
   } catch (error) {
-    console.error("Error sending notifications to admins:", error)
+    console.error("Error subscribing to push notifications:", error)
+    return null
   }
 }
 
-export async function sendTestNotification(userEmail: string) {
-  const supabase = createClient()
-
+export const unsubscribeFromPushNotifications = async (): Promise<boolean> => {
   try {
-    const { data: subscriptions, error } = await supabase
-      .from("push_subscriptions")
-      .select("*")
-      .eq("user_email", userEmail)
-      .eq("active", true)
+    const registration = await navigator.serviceWorker.getRegistration()
+    if (!registration) return false
 
-    if (error || !subscriptions || subscriptions.length === 0) {
-      throw new Error("No active subscription found")
-    }
+    const subscription = await registration.pushManager.getSubscription()
+    if (!subscription) return true
 
-    const subscription = subscriptions[0]
-    const pushSubscription = {
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: subscription.p256dh,
-        auth: subscription.auth,
+    return await subscription.unsubscribe()
+  } catch (error) {
+    console.error("Error unsubscribing from push notifications:", error)
+    return false
+  }
+}
+
+export const getPushSubscription = async (): Promise<PushSubscription | null> => {
+  try {
+    const registration = await navigator.serviceWorker.getRegistration()
+    if (!registration) return null
+
+    const subscription = await registration.pushManager.getSubscription()
+    return subscription ? (subscription.toJSON() as PushSubscription) : null
+  } catch (error) {
+    console.error("Error getting push subscription:", error)
+    return null
+  }
+}
+
+// Save subscription to database
+export const savePushSubscription = async (subscription: PushSubscription, userEmail: string): Promise<boolean> => {
+  try {
+    const supabase = createClient()
+
+    const { error } = await supabase.from("push_subscriptions").upsert(
+      {
+        user_email: userEmail,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+        active: true,
+        updated_at: new Date().toISOString(),
       },
+      {
+        onConflict: "user_email",
+      },
+    )
+
+    if (error) {
+      console.error("Error saving push subscription:", error)
+      return false
     }
 
-    const notificationPayload = JSON.stringify({
-      title: "Test Benachrichtigung",
-      message: "Dies ist eine Test-Benachrichtigung von I Eat Vienna",
-      url: "/app",
-      icon: "/icon-192x192.png",
-      badge: "/icon-192x192.png",
-      timestamp: Date.now(),
+    return true
+  } catch (error) {
+    console.error("Error saving push subscription:", error)
+    return false
+  }
+}
+
+// Remove subscription from database
+export const removePushSubscription = async (userEmail: string): Promise<boolean> => {
+  try {
+    const supabase = createClient()
+
+    const { error } = await supabase.from("push_subscriptions").update({ active: false }).eq("user_email", userEmail)
+
+    if (error) {
+      console.error("Error removing push subscription:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error removing push subscription:", error)
+    return false
+  }
+}
+
+// Send push notification to admin users (client-side function that calls API)
+export const sendNachbestellungNotification = async (nachbestellungData: {
+  eventName: string
+  totalItems: number
+  createdBy?: string
+}): Promise<boolean> => {
+  try {
+    const response = await fetch("/api/push-notifications/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "nachbestellung_created",
+        data: nachbestellungData,
+      }),
     })
 
-    await webpush.sendNotification(pushSubscription, notificationPayload)
+    return response.ok
   } catch (error) {
-    console.error("Error sending test notification:", error)
-    throw error
+    console.error("Error sending nachbestellung notification:", error)
+    return false
   }
 }
