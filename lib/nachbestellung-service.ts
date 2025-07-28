@@ -1,252 +1,150 @@
-import { createClient } from "@/lib/supabase-client"
+import { createClient } from "@/lib/supabase-server"
+import { sendNotificationToAdmins } from "@/lib/push-notification-service"
+import type { Database } from "./database.types"
 
-export interface Nachbestellung {
-  id: number
-  event_id: number
-  event_name: string
-  status: "offen" | "in_bearbeitung" | "abgeschlossen" | "storniert"
-  total_items: number
-  total_products: number
-  total_ingredients: number
-  notes?: string
-  created_at: string
-  updated_at: string
-  created_by?: string
-  completed_at?: string
-  completed_by?: string
-}
+type NachbestellungInsert = Database["public"]["Tables"]["nachbestellungen"]["Insert"]
+type NachbestellungItemInsert = Database["public"]["Tables"]["nachbestellung_items"]["Insert"]
 
-export interface NachbestellungItem {
-  id: number
-  nachbestellung_id: number
-  item_type: "product" | "ingredient"
-  item_id: number
-  item_name: string
-  quantity: number
-  unit: string
-  packaging_unit?: string
-  category?: string
-  notes?: string
-  status: "offen" | "bestellt" | "erhalten" | "storniert"
-  created_at: string
-  updated_at: string
-}
-
-interface CreateNachbestellungData {
-  event_id: number
-  event_name: string
-  products: Array<{
-    id: string
-    name: string
+export interface CreateNachbestellungData {
+  eventId: string
+  eventName: string
+  items: Array<{
+    productId: string
+    productName: string
     quantity: number
     unit: string
-    packagingUnit: string
-    category: string
-  }>
-  ingredients: Array<{
-    id: string
-    name: string
-    quantity: number
-    unit: string
-    packagingUnit: string
     category: string
   }>
   notes?: string
 }
 
-export async function createNachbestellung(
-  data: CreateNachbestellungData,
-  userId?: string,
-): Promise<Nachbestellung | null> {
+export async function createNachbestellung(data: CreateNachbestellungData) {
+  const supabase = createClient()
+
   try {
-    const supabase = createClient()
+    // Create the nachbestellung
+    const nachbestellungData: NachbestellungInsert = {
+      event_id: data.eventId,
+      event_name: data.eventName,
+      status: "pending",
+      notes: data.notes || null,
+      total_items: data.items.length,
+      created_by: "system", // You might want to get this from auth context
+    }
 
-    const totalItems = data.products.length + data.ingredients.length
-
-    // Create the main nachbestellung record
     const { data: nachbestellung, error: nachbestellungError } = await supabase
       .from("nachbestellungen")
-      .insert({
-        event_id: data.event_id,
-        event_name: data.event_name,
-        status: "offen",
-        total_items: totalItems,
-        total_products: data.products.length,
-        total_ingredients: data.ingredients.length,
-        notes: data.notes,
-        created_by: userId,
-      })
+      .insert(nachbestellungData)
       .select()
       .single()
 
     if (nachbestellungError) {
-      console.error("Error creating nachbestellung:", nachbestellungError)
-      return null
+      throw nachbestellungError
     }
 
-    // Create items for products
-    const productItems = data.products.map((product) => ({
+    // Create the nachbestellung items
+    const itemsData: NachbestellungItemInsert[] = data.items.map((item) => ({
       nachbestellung_id: nachbestellung.id,
-      item_type: "product" as const,
-      item_id: Number.parseInt(product.id),
-      item_name: product.name,
-      quantity: product.quantity,
-      unit: product.unit,
-      packaging_unit: product.packagingUnit,
-      category: product.category,
-      status: "offen" as const,
+      product_id: item.productId,
+      product_name: item.productName,
+      quantity: item.quantity,
+      unit: item.unit,
+      category: item.category,
     }))
 
-    // Create items for ingredients
-    const ingredientItems = data.ingredients.map((ingredient) => ({
-      nachbestellung_id: nachbestellung.id,
-      item_type: "ingredient" as const,
-      item_id: Number.parseInt(ingredient.id),
-      item_name: ingredient.name,
-      quantity: ingredient.quantity,
-      unit: ingredient.unit,
-      packaging_unit: ingredient.packagingUnit,
-      category: ingredient.category,
-      status: "offen" as const,
-    }))
-
-    // Insert all items
-    const allItems = [...productItems, ...ingredientItems]
-    if (allItems.length > 0) {
-      const { error: itemsError } = await supabase.from("nachbestellung_items").insert(allItems)
-
-      if (itemsError) {
-        console.error("Error creating nachbestellung items:", itemsError)
-        // Clean up the nachbestellung if items creation failed
-        await supabase.from("nachbestellungen").delete().eq("id", nachbestellung.id)
-        return null
-      }
-    }
-
-    return nachbestellung
-  } catch (error) {
-    console.error("Error in createNachbestellung:", error)
-    return null
-  }
-}
-
-export async function getNachbestellungen(userId?: string): Promise<Nachbestellung[]> {
-  try {
-    const supabase = createClient()
-
-    const { data, error } = await supabase
-      .from("nachbestellungen")
-      .select("*")
-      .order("created_at", { ascending: false })
-
-    if (error) {
-      console.error("Error fetching nachbestellungen:", error)
-      return []
-    }
-
-    return data || []
-  } catch (error) {
-    console.error("Error in getNachbestellungen:", error)
-    return []
-  }
-}
-
-export async function getNachbestellungById(
-  id: number,
-): Promise<{ nachbestellung: Nachbestellung; items: NachbestellungItem[] } | null> {
-  try {
-    const supabase = createClient()
-
-    // Get the nachbestellung
-    const { data: nachbestellung, error: nachbestellungError } = await supabase
-      .from("nachbestellungen")
-      .select("*")
-      .eq("id", id)
-      .single()
-
-    if (nachbestellungError) {
-      console.error("Error fetching nachbestellung:", nachbestellungError)
-      return null
-    }
-
-    // Get the items
-    const { data: items, error: itemsError } = await supabase
-      .from("nachbestellung_items")
-      .select("*")
-      .eq("nachbestellung_id", id)
-      .order("item_type", { ascending: true })
-      .order("item_name", { ascending: true })
+    const { error: itemsError } = await supabase.from("nachbestellung_items").insert(itemsData)
 
     if (itemsError) {
-      console.error("Error fetching nachbestellung items:", itemsError)
-      return null
+      throw itemsError
     }
 
-    return {
-      nachbestellung,
-      items: items || [],
+    // Send push notification to admins
+    try {
+      await sendNotificationToAdmins({
+        title: "Neue Nachbestellung",
+        message: `Neue Nachbestellung für "${data.eventName}" mit ${data.items.length} Artikeln`,
+        url: `/app/nachbestellungen/view/${nachbestellung.id}`,
+        icon: "/icon-192x192.png",
+      })
+      console.log("Push notification sent to admins")
+    } catch (notificationError) {
+      console.error("Failed to send push notification:", notificationError)
+      // Don't fail the entire operation if notification fails
     }
+
+    return { success: true, data: nachbestellung }
   } catch (error) {
-    console.error("Error in getNachbestellungById:", error)
-    return null
+    console.error("Error creating nachbestellung:", error)
+    return { success: false, error }
   }
 }
 
-export async function updateNachbestellungStatus(
-  id: number,
-  status: Nachbestellung["status"],
-  userId?: string,
-): Promise<boolean> {
-  try {
-    const supabase = createClient()
+export async function getNachbestellungen() {
+  const supabase = createClient()
 
-    const updateData: any = {
-      status,
-      updated_at: new Date().toISOString(),
-    }
+  const { data, error } = await supabase
+    .from("nachbestellungen")
+    .select(`
+      *,
+      nachbestellung_items (
+        id,
+        product_name,
+        quantity,
+        unit,
+        category
+      )
+    `)
+    .order("created_at", { ascending: false })
 
-    if (status === "abgeschlossen") {
-      updateData.completed_at = new Date().toISOString()
-      updateData.completed_by = userId
-    }
-
-    const { error } = await supabase.from("nachbestellungen").update(updateData).eq("id", id)
-
-    if (error) {
-      console.error("Error updating nachbestellung status:", error)
-      return false
-    }
-
-    return true
-  } catch (error) {
-    console.error("Error in updateNachbestellungStatus:", error)
-    return false
+  if (error) {
+    console.error("Error fetching nachbestellungen:", error)
+    return { success: false, error }
   }
+
+  return { success: true, data }
 }
 
-export async function deleteNachbestellung(id: number): Promise<boolean> {
-  try {
-    const supabase = createClient()
+export async function getNachbestellungById(id: string) {
+  const supabase = createClient()
 
-    // Delete items first (due to foreign key constraint)
-    const { error: itemsError } = await supabase.from("nachbestellung_items").delete().eq("nachbestellung_id", id)
+  const { data, error } = await supabase
+    .from("nachbestellungen")
+    .select(`
+      *,
+      nachbestellung_items (
+        id,
+        product_id,
+        product_name,
+        quantity,
+        unit,
+        category
+      )
+    `)
+    .eq("id", id)
+    .single()
 
-    if (itemsError) {
-      console.error("Error deleting nachbestellung items:", itemsError)
-      return false
-    }
-
-    // Delete the nachbestellung
-    const { error: nachbestellungError } = await supabase.from("nachbestellungen").delete().eq("id", id)
-
-    if (nachbestellungError) {
-      console.error("Error deleting nachbestellung:", nachbestellungError)
-      return false
-    }
-
-    return true
-  } catch (error) {
-    console.error("Error in deleteNachbestellung:", error)
-    return false
+  if (error) {
+    console.error("Error fetching nachbestellung:", error)
+    return { success: false, error }
   }
+
+  return { success: true, data }
+}
+
+export async function updateNachbestellungStatus(id: string, status: string) {
+  const supabase = createClient()
+
+  const { data, error } = await supabase
+    .from("nachbestellungen")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error("Error updating nachbestellung status:", error)
+    return { success: false, error }
+  }
+
+  return { success: true, data }
 }

@@ -1,112 +1,119 @@
-// This is the service worker file
-
 const CACHE_NAME = "i-eat-vienna-v1"
 const urlsToCache = [
   "/",
+  "/app",
   "/app/packliste",
+  "/app/nachbestellungen",
   "/app/einkaufen",
-  "/app/bestellung",
-  "/manifest.json",
-  "/icons/icon-72x72.png",
-  "/icons/icon-96x96.png",
-  "/icons/icon-128x128.png",
-  "/icons/icon-144x144.png",
-  "/icons/icon-152x152.png",
-  "/icons/icon-192x192.png",
-  "/icons/icon-384x384.png",
-  "/icons/icon-512x512.png",
+  "/offline",
+  "/icon-192x192.png",
+  "/icon-512x512.png",
 ]
 
-// Install event - cache assets
+// Install event
 self.addEventListener("install", (event) => {
-  // Perform install steps
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log("Opened cache")
-      return cache.addAll(urlsToCache)
-    }),
-  )
-  // Activate immediately
-  self.skipWaiting()
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache)))
 })
 
-// Activate event - clean up old caches
-self.addEventListener("activate", (event) => {
-  const cacheWhitelist = [CACHE_NAME]
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            return caches.delete(cacheName)
-          }
-        }),
-      )
-    }),
-  )
-  // Claim any clients immediately
-  self.clients.claim()
-})
-
-// Fetch event - serve from cache or network
+// Fetch event
 self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(event.request).then((response) => {
-      // Cache hit - return response
-      if (response) {
-        return response
-      }
-
-      // Clone the request
-      const fetchRequest = event.request.clone()
-
-      return fetch(fetchRequest)
-        .then((response) => {
-          // Check if we received a valid response
-          if (!response || response.status !== 200 || response.type !== "basic") {
-            return response
-          }
-
-          // Clone the response
-          const responseToCache = response.clone()
-
-          caches.open(CACHE_NAME).then((cache) => {
-            // Don't cache API requests or other dynamic content
-            if (!event.request.url.includes("/api/")) {
-              cache.put(event.request, responseToCache)
-            }
-          })
-
-          return response
-        })
-        .catch(() => {
-          // If the network fails, try to serve the offline page
-          if (event.request.mode === "navigate") {
-            return caches.match("/")
+      // Return cached version or fetch from network
+      return (
+        response ||
+        fetch(event.request).catch(() => {
+          // If both cache and network fail, show offline page
+          if (event.request.destination === "document") {
+            return caches.match("/offline")
           }
         })
+      )
     }),
   )
 })
 
-// Handle push notifications
+// Push event - handle incoming push notifications
 self.addEventListener("push", (event) => {
-  const data = event.data.json()
-  const options = {
-    body: data.body,
-    icon: "/icons/icon-192x192.png",
-    badge: "/icons/icon-72x72.png",
-    vibrate: [100, 50, 100],
-    data: {
-      url: data.url || "/",
-    },
+  console.log("Push event received:", event)
+
+  let data = {}
+
+  if (event.data) {
+    try {
+      data = event.data.json()
+    } catch (e) {
+      console.error("Error parsing push data:", e)
+      data = {
+        title: "I Eat Vienna",
+        message: "New notification",
+        url: "/app",
+        icon: "/icon-192x192.png",
+      }
+    }
   }
 
-  event.waitUntil(self.registration.showNotification(data.title, options))
+  const options = {
+    body: data.message || "New notification",
+    icon: data.icon || "/icon-192x192.png",
+    badge: "/icon-192x192.png",
+    vibrate: [100, 50, 100],
+    data: {
+      url: data.url || "/app",
+      timestamp: data.timestamp || Date.now(),
+    },
+    actions: [
+      {
+        action: "open",
+        title: "Open App",
+      },
+      {
+        action: "close",
+        title: "Close",
+      },
+    ],
+    requireInteraction: true,
+    tag: "nachbestellung-notification",
+  }
+
+  event.waitUntil(self.registration.showNotification(data.title || "I Eat Vienna", options))
 })
 
-// Handle notification click
+// Notification click event
 self.addEventListener("notificationclick", (event) => {
+  console.log("Notification clicked:", event)
+
   event.notification.close()
-  event.waitUntil(clients.openWindow(event.notification.data.url))
+
+  if (event.action === "close") {
+    return
+  }
+
+  const urlToOpen = event.notification.data?.url || "/app"
+
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // Check if there's already a window/tab open with the target URL
+      for (const client of clientList) {
+        if (client.url.includes(urlToOpen) && "focus" in client) {
+          return client.focus()
+        }
+      }
+
+      // If no existing window/tab, open a new one
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen)
+      }
+    }),
+  )
+})
+
+// Background sync (optional - for offline functionality)
+self.addEventListener("sync", (event) => {
+  if (event.tag === "background-sync") {
+    event.waitUntil(
+      // Handle background sync tasks
+      console.log("Background sync triggered"),
+    )
+  }
 })
