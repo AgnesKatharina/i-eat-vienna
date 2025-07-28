@@ -1,19 +1,13 @@
 import webpush from "web-push"
 import { createClient } from "@/lib/supabase-server"
 
-// Configure web-push with VAPID keys
-webpush.setVapidDetails(
-  "mailto:office@ieatvienna.at",
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!,
-)
-
-export interface PushSubscription {
-  endpoint: string
-  keys: {
-    p256dh: string
-    auth: string
-  }
+// Configure web-push
+if (process.env.VAPID_PRIVATE_KEY && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) {
+  webpush.setVapidDetails(
+    "mailto:office@ieatvienna.at",
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  )
 }
 
 export interface NotificationPayload {
@@ -23,72 +17,109 @@ export interface NotificationPayload {
   icon?: string
 }
 
-export async function sendPushNotification(subscription: PushSubscription, payload: NotificationPayload) {
-  try {
-    const notificationPayload = JSON.stringify({
-      title: payload.title,
-      message: payload.message,
-      url: payload.url || "/",
-      icon: payload.icon || "/icon-192x192.png",
-      timestamp: Date.now(),
-    })
-
-    await webpush.sendNotification(subscription, notificationPayload)
-    return { success: true }
-  } catch (error) {
-    console.error("Error sending push notification:", error)
-    return { success: false, error }
-  }
-}
-
 export async function sendNotificationToAdmins(payload: NotificationPayload) {
-  const supabase = createClient()
-
   try {
-    // Get all admin subscriptions
+    const supabase = createClient()
+
+    // Get admin subscriptions
+    const adminEmails = ["agnes@ieatvienna.at", "office@ieatvienna.at"]
+
     const { data: subscriptions, error } = await supabase
       .from("push_subscriptions")
       .select("*")
-      .in("user_email", ["agnes@ieatvienna.at", "office@ieatvienna.at"])
+      .in("user_email", adminEmails)
       .eq("active", true)
 
     if (error) {
-      console.error("Error fetching admin subscriptions:", error)
-      return { success: false, error }
+      console.error("Error fetching subscriptions:", error)
+      return
     }
 
     if (!subscriptions || subscriptions.length === 0) {
-      console.log("No admin subscriptions found")
-      return { success: true, message: "No admin subscriptions found" }
+      console.log("No active admin subscriptions found")
+      return
     }
 
     // Send notifications to all admin subscriptions
-    const results = await Promise.allSettled(
-      subscriptions.map((sub) =>
-        sendPushNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: {
-              p256dh: sub.p256dh_key,
-              auth: sub.auth_key,
-            },
+    const notificationPromises = subscriptions.map(async (sub) => {
+      try {
+        const pushSubscription = {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: sub.p256dh_key,
+            auth: sub.auth_key,
           },
-          payload,
-        ),
-      ),
-    )
+        }
 
-    const successful = results.filter((r) => r.status === "fulfilled").length
-    const failed = results.filter((r) => r.status === "rejected").length
+        const notificationPayload = JSON.stringify({
+          title: payload.title,
+          message: payload.message,
+          url: payload.url || "/app/nachbestellungen",
+          icon: payload.icon || "/icon-192x192.png",
+          badge: "/icon-192x192.png",
+          timestamp: Date.now(),
+        })
 
-    console.log(`Push notifications sent: ${successful} successful, ${failed} failed`)
+        await webpush.sendNotification(pushSubscription, notificationPayload)
+        console.log(`Notification sent to ${sub.user_email}`)
+      } catch (error) {
+        console.error(`Failed to send notification to ${sub.user_email}:`, error)
 
-    return {
-      success: true,
-      results: { successful, failed, total: subscriptions.length },
-    }
+        // If subscription is invalid, mark it as inactive
+        if (error.statusCode === 410) {
+          await supabase.from("push_subscriptions").update({ active: false }).eq("id", sub.id)
+        }
+      }
+    })
+
+    await Promise.allSettled(notificationPromises)
   } catch (error) {
     console.error("Error sending notifications to admins:", error)
-    return { success: false, error }
+  }
+}
+
+export async function sendTestNotification(userEmail: string) {
+  try {
+    const supabase = createClient()
+
+    const { data: subscriptions, error } = await supabase
+      .from("push_subscriptions")
+      .select("*")
+      .eq("user_email", userEmail)
+      .eq("active", true)
+
+    if (error) {
+      console.error("Error fetching user subscription:", error)
+      return false
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      console.log("No active subscription found for user")
+      return false
+    }
+
+    const subscription = subscriptions[0]
+    const pushSubscription = {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.p256dh_key,
+        auth: subscription.auth_key,
+      },
+    }
+
+    const notificationPayload = JSON.stringify({
+      title: "Test Benachrichtigung",
+      message: "Dies ist eine Test-Benachrichtigung von I Eat Vienna",
+      url: "/app",
+      icon: "/icon-192x192.png",
+      badge: "/icon-192x192.png",
+      timestamp: Date.now(),
+    })
+
+    await webpush.sendNotification(pushSubscription, notificationPayload)
+    return true
+  } catch (error) {
+    console.error("Error sending test notification:", error)
+    return false
   }
 }

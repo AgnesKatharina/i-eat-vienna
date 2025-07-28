@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     // Check if user is admin
     const adminEmails = ["agnes@ieatvienna.at", "office@ieatvienna.at"]
     if (!adminEmails.includes(userEmail)) {
-      return NextResponse.json({ error: "Only admin users can subscribe to notifications" }, { status: 403 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
 
     const supabase = createClient()
@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
     const { data: existing } = await supabase
       .from("push_subscriptions")
       .select("id")
-      .eq("endpoint", subscription.endpoint)
       .eq("user_email", userEmail)
+      .eq("endpoint", subscription.endpoint)
       .single()
 
     if (existing) {

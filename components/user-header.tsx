@@ -1,45 +1,45 @@
 "use client"
 
-import { User, LogOut, Bell, BellOff } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useAuth } from "@/components/auth-provider"
-import { createClient } from "@/lib/supabase-client"
-import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Bell, BellOff, TestTube } from "lucide-react"
+import { createClient } from "@/lib/supabase-client"
+import type { User } from "@supabase/supabase-js"
 
-export function UserHeader() {
-  const { user } = useAuth()
-  const router = useRouter()
-  const supabase = createClient()
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
-  const [isSubscribing, setIsSubscribing] = useState(false)
+interface UserHeaderProps {
+  user: User | null
+}
+
+export function UserHeader({ user }: UserHeaderProps) {
+  const [isSubscribed, setIsSubscribed] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // Check if user is admin
-  const isAdmin = user?.email === "agnes@ieatvienna.at" || user?.email === "office@ieatvienna.at"
+  useEffect(() => {
+    if (user?.email) {
+      const adminEmails = ["agnes@ieatvienna.at", "office@ieatvienna.at"]
+      setIsAdmin(adminEmails.includes(user.email))
+    }
+  }, [user])
 
+  // Check subscription status
   useEffect(() => {
     if (isAdmin && "serviceWorker" in navigator && "PushManager" in window) {
-      checkNotificationStatus()
+      checkSubscriptionStatus()
     }
   }, [isAdmin])
 
-  const checkNotificationStatus = async () => {
+  const checkSubscriptionStatus = async () => {
     try {
       const registration = await navigator.serviceWorker.getRegistration()
       if (registration) {
         const subscription = await registration.pushManager.getSubscription()
-        setNotificationsEnabled(!!subscription)
+        setIsSubscribed(!!subscription)
       }
     } catch (error) {
-      console.error("Error checking notification status:", error)
+      console.error("Error checking subscription status:", error)
     }
   }
 
@@ -54,109 +54,150 @@ export function UserHeader() {
     return buffer
   }
 
-  const toggleNotifications = async () => {
-    if (isSubscribing) return
-    setIsSubscribing(true)
+  const subscribeToNotifications = async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      alert("Push notifications are not supported in this browser")
+      return
+    }
 
+    setIsLoading(true)
     try {
-      if (notificationsEnabled) {
-        // Unsubscribe
-        const registration = await navigator.serviceWorker.getRegistration()
-        if (registration) {
-          const subscription = await registration.pushManager.getSubscription()
-          if (subscription) {
-            await subscription.unsubscribe()
+      const registration = await navigator.serviceWorker.getRegistration()
+      if (!registration) {
+        throw new Error("Service worker not registered")
+      }
 
-            // Remove from database
-            await fetch("/api/push-notifications/unsubscribe", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ endpoint: subscription.endpoint }),
-            })
+      const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!publicKey) {
+        throw new Error("VAPID public key not configured")
+      }
 
-            setNotificationsEnabled(false)
-          }
-        }
-      } else {
-        // Subscribe
-        const permission = await Notification.requestPermission()
-        if (permission === "granted") {
-          const registration = await navigator.serviceWorker.getRegistration()
-          if (registration) {
-            const subscription = await registration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: base64UrlToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
-            })
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlToUint8Array(publicKey),
+      })
 
-            // Save to database
-            const response = await fetch("/api/push-notifications/subscribe", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                subscription: subscription.toJSON(),
-                userEmail: user?.email,
-              }),
-            })
+      // Save subscription to database
+      const response = await fetch("/api/push-notifications/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          subscription,
+          userEmail: user?.email,
+        }),
+      })
 
-            if (response.ok) {
-              setNotificationsEnabled(true)
-            }
-          }
+      if (!response.ok) {
+        throw new Error("Failed to save subscription")
+      }
+
+      setIsSubscribed(true)
+      alert("Successfully subscribed to notifications!")
+    } catch (error) {
+      console.error("Error subscribing to notifications:", error)
+      alert("Failed to subscribe to notifications")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const unsubscribeFromNotifications = async () => {
+    setIsLoading(true)
+    try {
+      const registration = await navigator.serviceWorker.getRegistration()
+      if (registration) {
+        const subscription = await registration.pushManager.getSubscription()
+        if (subscription) {
+          await subscription.unsubscribe()
+
+          // Remove subscription from database
+          await fetch("/api/push-notifications/unsubscribe", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              userEmail: user?.email,
+            }),
+          })
         }
       }
+
+      setIsSubscribed(false)
+      alert("Successfully unsubscribed from notifications!")
     } catch (error) {
-      console.error("Error toggling notifications:", error)
+      console.error("Error unsubscribing from notifications:", error)
+      alert("Failed to unsubscribe from notifications")
     } finally {
-      setIsSubscribing(false)
+      setIsLoading(false)
+    }
+  }
+
+  const testNotification = async () => {
+    try {
+      const response = await fetch("/api/push-notifications/test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userEmail: user?.email,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to send test notification")
+      }
+
+      alert("Test notification sent!")
+    } catch (error) {
+      console.error("Error sending test notification:", error)
+      alert("Failed to send test notification")
     }
   }
 
   const handleSignOut = async () => {
+    const supabase = createClient()
     await supabase.auth.signOut()
-    router.push("/")
   }
 
   if (!user) return null
 
   return (
-    <div className="fixed top-4 right-4 z-50">
-      <div className="bg-white/80 backdrop-blur-md rounded-lg shadow-lg border border-white/20 p-3 flex items-center gap-3">
-        <div className="flex items-center gap-2 text-sm text-gray-700">
-          <User className="h-4 w-4" />
-          <span className="font-medium">{user.email}</span>
+    <div className="flex items-center justify-between p-4 bg-white border-b">
+      <div className="flex items-center gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Willkommen, {user.email}</h2>
+          {isAdmin && <Badge variant="secondary">Admin</Badge>}
         </div>
+      </div>
 
+      <div className="flex items-center gap-2">
         {isAdmin && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
-                {notificationsEnabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={isSubscribed ? unsubscribeFromNotifications : subscribeToNotifications}
+              disabled={isLoading}
+            >
+              {isSubscribed ? <BellOff className="w-4 h-4 mr-2" /> : <Bell className="w-4 h-4 mr-2" />}
+              {isSubscribed ? "Benachrichtigungen aus" : "Benachrichtigungen an"}
+            </Button>
+
+            {isSubscribed && (
+              <Button variant="outline" size="sm" onClick={testNotification}>
+                <TestTube className="w-4 h-4 mr-2" />
+                Test
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Push Notifications</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={toggleNotifications} disabled={isSubscribing}>
-                {isSubscribing ? "Loading..." : notificationsEnabled ? "Disable Notifications" : "Enable Notifications"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={async () => {
-                  await fetch("/api/push-notifications/test", { method: "POST" })
-                }}
-              >
-                Test Notification
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            )}
+          </>
         )}
 
-        <Button
-          onClick={handleSignOut}
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
-        >
-          <LogOut className="h-4 w-4" />
+        <Button variant="outline" onClick={handleSignOut}>
+          Abmelden
         </Button>
       </div>
     </div>

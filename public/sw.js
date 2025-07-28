@@ -1,14 +1,5 @@
 const CACHE_NAME = "i-eat-vienna-v1"
-const urlsToCache = [
-  "/",
-  "/app",
-  "/app/packliste",
-  "/app/nachbestellungen",
-  "/app/einkaufen",
-  "/offline",
-  "/icon-192x192.png",
-  "/icon-512x512.png",
-]
+const urlsToCache = ["/", "/app", "/offline", "/icon-192x192.png", "/icon-512x512.png"]
 
 // Install event
 self.addEventListener("install", (event) => {
@@ -18,18 +9,18 @@ self.addEventListener("install", (event) => {
 // Fetch event
 self.addEventListener("fetch", (event) => {
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      // Return cached version or fetch from network
-      return (
-        response ||
-        fetch(event.request).catch(() => {
-          // If both cache and network fail, show offline page
-          if (event.request.destination === "document") {
-            return caches.match("/offline")
-          }
-        })
-      )
-    }),
+    caches
+      .match(event.request)
+      .then((response) => {
+        // Return cached version or fetch from network
+        return response || fetch(event.request)
+      })
+      .catch(() => {
+        // If both cache and network fail, show offline page
+        if (event.request.destination === "document") {
+          return caches.match("/offline")
+        }
+      }),
   )
 })
 
@@ -37,46 +28,45 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   console.log("Push event received:", event)
 
-  let data = {}
+  let notificationData = {
+    title: "I Eat Vienna",
+    message: "Sie haben eine neue Benachrichtigung",
+    url: "/app",
+    icon: "/icon-192x192.png",
+    badge: "/icon-192x192.png",
+  }
 
   if (event.data) {
     try {
-      data = event.data.json()
-    } catch (e) {
-      console.error("Error parsing push data:", e)
-      data = {
-        title: "I Eat Vienna",
-        message: "New notification",
-        url: "/app",
-        icon: "/icon-192x192.png",
-      }
+      notificationData = { ...notificationData, ...event.data.json() }
+    } catch (error) {
+      console.error("Error parsing notification data:", error)
     }
   }
 
-  const options = {
-    body: data.message || "New notification",
-    icon: data.icon || "/icon-192x192.png",
-    badge: "/icon-192x192.png",
-    vibrate: [100, 50, 100],
+  const notificationOptions = {
+    body: notificationData.message,
+    icon: notificationData.icon,
+    badge: notificationData.badge,
     data: {
-      url: data.url || "/app",
-      timestamp: data.timestamp || Date.now(),
+      url: notificationData.url,
+      timestamp: notificationData.timestamp || Date.now(),
     },
     actions: [
       {
         action: "open",
-        title: "Open App",
+        title: "Öffnen",
       },
       {
         action: "close",
-        title: "Close",
+        title: "Schließen",
       },
     ],
     requireInteraction: true,
-    tag: "nachbestellung-notification",
+    vibrate: [200, 100, 200],
   }
 
-  event.waitUntil(self.registration.showNotification(data.title || "I Eat Vienna", options))
+  event.waitUntil(self.registration.showNotification(notificationData.title, notificationOptions))
 })
 
 // Notification click event

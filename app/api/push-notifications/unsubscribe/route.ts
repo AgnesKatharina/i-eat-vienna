@@ -3,15 +3,22 @@ import { createClient } from "@/lib/supabase-server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { endpoint } = await request.json()
+    const { userEmail } = await request.json()
 
-    if (!endpoint) {
-      return NextResponse.json({ error: "Missing endpoint" }, { status: 400 })
+    if (!userEmail) {
+      return NextResponse.json({ error: "Missing userEmail" }, { status: 400 })
     }
 
     const supabase = createClient()
 
-    const { error } = await supabase.from("push_subscriptions").update({ active: false }).eq("endpoint", endpoint)
+    // Mark all subscriptions for this user as inactive
+    const { error } = await supabase
+      .from("push_subscriptions")
+      .update({
+        active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_email", userEmail)
 
     if (error) {
       console.error("Error unsubscribing:", error)
