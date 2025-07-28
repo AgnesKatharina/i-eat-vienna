@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Search, Package, ChefHat, ShoppingCart, Plus, Minus } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
+import { ArrowLeft, Search, Package, ChefHat, ShoppingCart, Plus, Minus, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase-client"
 import { getEventProductsFromSupabase, getEventIngredientsFromSupabase } from "@/lib/supabase-service"
+import { createNachbestellung } from "@/lib/nachbestellung-service"
 import { toast } from "@/hooks/use-toast"
 
 interface Event {
@@ -95,6 +97,8 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("products")
+  const [notes, setNotes] = useState("")
+  const [isCreating, setIsCreating] = useState(false)
 
   useEffect(() => {
     loadEventData()
@@ -204,7 +208,7 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
     )
   }
 
-  const handleCreateReorder = () => {
+  const handleCreateReorder = async () => {
     const selectedProductsData = products.filter((p) => p.reorderQuantity > 0)
     const selectedIngredientsData = ingredients.filter((i) => i.reorderQuantity > 0)
 
@@ -218,17 +222,73 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
       return
     }
 
-    toast({
-      title: "Nachbestellung erstellt",
-      description: `${totalSelected} Artikel für Nachbestellung ausgewählt`,
-    })
+    if (!event) {
+      toast({
+        title: "Fehler",
+        description: "Event-Daten nicht verfügbar",
+        variant: "destructive",
+      })
+      return
+    }
 
-    console.log("Selected products:", selectedProductsData)
-    console.log("Selected ingredients:", selectedIngredientsData)
+    setIsCreating(true)
 
-    // Here you would save the reorder to the database
-    // For now, we'll just navigate back
-    router.push("/app/nachbestellungen")
+    try {
+      // Get current user (you might need to implement this based on your auth system)
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const nachbestellungData = {
+        event_id: Number.parseInt(eventId),
+        event_name: event.name,
+        products: selectedProductsData.map((p) => ({
+          id: p.id,
+          name: p.name,
+          quantity: p.reorderQuantity,
+          unit: p.unit,
+          packagingUnit: p.packagingUnit,
+          category: p.category,
+        })),
+        ingredients: selectedIngredientsData.map((i) => ({
+          id: i.id,
+          name: i.name,
+          quantity: i.reorderQuantity,
+          unit: i.unit,
+          packagingUnit: i.packagingUnit,
+          category: i.category,
+        })),
+        notes: notes.trim() || undefined,
+      }
+
+      const result = await createNachbestellung(nachbestellungData, user?.id)
+
+      if (result) {
+        toast({
+          title: "Nachbestellung erstellt",
+          description: `${totalSelected} Artikel für Nachbestellung gespeichert`,
+        })
+
+        // Navigate back to nachbestellungen page
+        router.push("/app/nachbestellungen")
+      } else {
+        toast({
+          title: "Fehler",
+          description: "Nachbestellung konnte nicht erstellt werden",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error creating nachbestellung:", error)
+      toast({
+        title: "Fehler",
+        description: "Ein unerwarteter Fehler ist aufgetreten",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   const formatDate = (dateString: string | null) => {
@@ -276,22 +336,28 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
     )
   }
 
+  const selectedProductsCount = products.filter((p) => p.reorderQuantity > 0).length
+  const selectedIngredientsCount = ingredients.filter((i) => i.reorderQuantity > 0).length
+  const totalSelectedCount = selectedProductsCount + selectedIngredientsCount
+
   return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="border border-gray-200 rounded-lg p-6">
+    <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
+      <div className="border border-gray-200 rounded-lg p-4 sm:p-6">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex items-center gap-4 mb-6 sm:mb-8">
           <Button
             variant="outline"
             size="icon"
             onClick={() => router.push("/app/nachbestellungen")}
-            className="border-gray-300 hover:bg-gray-50"
+            className="border-gray-300 hover:bg-gray-50 flex-shrink-0"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-semibold text-gray-900 mb-2">Nachbestellung für: {event.name}</h1>
-            <p className="text-gray-600">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-2 truncate">
+              Nachbestellung für: {event.name}
+            </h1>
+            <p className="text-sm sm:text-base text-gray-600">
               {event.type} • {formatDateRange(event.date, event.end_date)}
             </p>
           </div>
@@ -311,21 +377,23 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="products" className="flex items-center gap-2">
+            <TabsTrigger value="products" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <ChefHat className="h-4 w-4" />
-              Produkte
-              {products.filter((p) => p.reorderQuantity > 0).length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {products.filter((p) => p.reorderQuantity > 0).length}
+              <span className="hidden sm:inline">Produkte</span>
+              <span className="sm:hidden">Produkte</span>
+              {selectedProductsCount > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {selectedProductsCount}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="ingredients" className="flex items-center gap-2">
+            <TabsTrigger value="ingredients" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <ShoppingCart className="h-4 w-4" />
-              Zutaten
-              {ingredients.filter((i) => i.reorderQuantity > 0).length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {ingredients.filter((i) => i.reorderQuantity > 0).length}
+              <span className="hidden sm:inline">Zutaten</span>
+              <span className="sm:hidden">Zutaten</span>
+              {selectedIngredientsCount > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {selectedIngredientsCount}
                 </Badge>
               )}
             </TabsTrigger>
@@ -353,48 +421,53 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
               <div className="grid gap-3">
                 {filteredProducts.map((product) => (
                   <Card key={product.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="p-4 flex justify-between items-center">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-gray-900">{product.name}</h3>
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">{product.name}</h3>
+                          <p className="text-xs text-gray-500">{product.category}</p>
                         </div>
-                      </div>
 
-                      {/* Quantity selector */}
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 rounded-md bg-transparent"
-                          onClick={() => {
-                            const newValue = Math.max(0, product.reorderQuantity - 1)
-                            handleProductQuantityChange(product.id, newValue)
-                          }}
-                          disabled={product.reorderQuantity <= 0}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={product.reorderQuantity}
-                          onChange={(e) => {
-                            const value = Number.parseInt(e.target.value) || 0
-                            handleProductQuantityChange(product.id, Math.max(0, value))
-                          }}
-                          className="h-8 w-20 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 rounded-md bg-transparent"
-                          onClick={() => {
-                            handleProductQuantityChange(product.id, product.reorderQuantity + 1)
-                          }}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                        <span className="text-sm text-gray-600">{product.packagingUnit}</span>
+                        {/* Quantity selector */}
+                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                const newValue = Math.max(0, product.reorderQuantity - 1)
+                                handleProductQuantityChange(product.id, newValue)
+                              }}
+                              disabled={product.reorderQuantity <= 0}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={product.reorderQuantity}
+                              onChange={(e) => {
+                                const value = Number.parseInt(e.target.value) || 0
+                                handleProductQuantityChange(product.id, Math.max(0, value))
+                              }}
+                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                handleProductQuantityChange(product.id, product.reorderQuantity + 1)
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
+                            {product.packagingUnit}
+                          </span>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -425,51 +498,57 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
               <div className="grid gap-3">
                 {filteredIngredients.map((ingredient) => (
                   <Card key={ingredient.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="p-4 flex justify-between items-center">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-gray-900">{ingredient.name}</h3>
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">
+                            {ingredient.name}
+                          </h3>
+                          <p className="text-xs text-gray-500 truncate">
+                            Verwendet in: {ingredient.used_in_products.join(", ")}
+                          </p>
                         </div>
-                        <p className="text-xs text-gray-500 mb-2">
-                          Verwendet in: {ingredient.used_in_products.join(", ")}
-                        </p>
-                      </div>
 
-                      {/* Quantity selector */}
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 rounded-md bg-transparent"
-                          onClick={() => {
-                            const newValue = Math.max(0, ingredient.reorderQuantity - 1)
-                            handleIngredientQuantityChange(ingredient.id, newValue)
-                          }}
-                          disabled={ingredient.reorderQuantity <= 0}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={ingredient.reorderQuantity}
-                          onChange={(e) => {
-                            const value = Number.parseInt(e.target.value) || 0
-                            handleIngredientQuantityChange(ingredient.id, Math.max(0, value))
-                          }}
-                          className="h-8 w-20 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 rounded-md bg-transparent"
-                          onClick={() => {
-                            handleIngredientQuantityChange(ingredient.id, ingredient.reorderQuantity + 1)
-                          }}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                        <span className="text-sm text-gray-600">{ingredient.packagingUnit}</span>
+                        {/* Quantity selector */}
+                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                const newValue = Math.max(0, ingredient.reorderQuantity - 1)
+                                handleIngredientQuantityChange(ingredient.id, newValue)
+                              }}
+                              disabled={ingredient.reorderQuantity <= 0}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={ingredient.reorderQuantity}
+                              onChange={(e) => {
+                                const value = Number.parseInt(e.target.value) || 0
+                                handleIngredientQuantityChange(ingredient.id, Math.max(0, value))
+                              }}
+                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                handleIngredientQuantityChange(ingredient.id, ingredient.reorderQuantity + 1)
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
+                            {ingredient.packagingUnit}
+                          </span>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -479,35 +558,64 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           </TabsContent>
         </Tabs>
 
+        {/* Notes Section */}
+        {totalSelectedCount > 0 && (
+          <div className="mt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <FileText className="h-4 w-4 text-gray-600" />
+              <label htmlFor="notes" className="text-sm font-medium text-gray-700">
+                Notizen (optional)
+              </label>
+            </div>
+            <Textarea
+              id="notes"
+              placeholder="Zusätzliche Informationen zur Nachbestellung..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="min-h-[80px] resize-none"
+              maxLength={500}
+            />
+            <p className="text-xs text-gray-500 mt-1">{notes.length}/500 Zeichen</p>
+          </div>
+        )}
+
         {/* Action Bar */}
-        {(products.filter((p) => p.reorderQuantity > 0).length > 0 ||
-          ingredients.filter((i) => i.reorderQuantity > 0).length > 0) && (
-          <div className="mt-8 p-4 bg-gray-50 rounded-lg border">
-            <div className="flex items-center justify-between">
+        {totalSelectedCount > 0 && (
+          <div className="mt-6 sm:mt-8 p-4 bg-gray-50 rounded-lg border">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <p className="font-semibold text-gray-900">
-                  {products.filter((p) => p.reorderQuantity > 0).length +
-                    ingredients.filter((i) => i.reorderQuantity > 0).length}{" "}
-                  Artikel ausgewählt
+                <p className="font-semibold text-gray-900 text-sm sm:text-base">
+                  {totalSelectedCount} Artikel ausgewählt
                 </p>
-                <p className="text-sm text-gray-600">
-                  {products.filter((p) => p.reorderQuantity > 0).length} Produkte,{" "}
-                  {ingredients.filter((i) => i.reorderQuantity > 0).length} Zutaten
+                <p className="text-xs sm:text-sm text-gray-600">
+                  {selectedProductsCount} Produkte, {selectedIngredientsCount} Zutaten
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
                     setProducts(products.map((p) => ({ ...p, reorderQuantity: 0 })))
                     setIngredients(ingredients.map((i) => ({ ...i, reorderQuantity: 0 })))
+                    setNotes("")
                   }}
+                  className="text-xs sm:text-sm"
+                  disabled={isCreating}
                 >
                   Auswahl zurücksetzen
                 </Button>
-                <Button onClick={handleCreateReorder}>
-                  <Package className="h-4 w-4 mr-2" />
-                  Nachbestellung erstellen
+                <Button onClick={handleCreateReorder} disabled={isCreating} className="text-xs sm:text-sm">
+                  {isCreating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Erstelle...
+                    </>
+                  ) : (
+                    <>
+                      <Package className="h-4 w-4 mr-2" />
+                      Nachbestellung erstellen
+                    </>
+                  )}
                 </Button>
               </div>
             </div>

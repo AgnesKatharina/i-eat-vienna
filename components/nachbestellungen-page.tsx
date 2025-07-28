@@ -7,8 +7,27 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Search, Calendar, Package } from "lucide-react"
+import {
+  ArrowLeft,
+  Search,
+  Calendar,
+  Package,
+  ChevronRight,
+  Clock,
+  CheckCircle,
+  XCircle,
+  MoreVertical,
+  Eye,
+  Trash2,
+} from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { createClient } from "@/lib/supabase-client"
+import {
+  getNachbestellungen,
+  updateNachbestellungStatus,
+  deleteNachbestellung,
+  type Nachbestellung,
+} from "@/lib/nachbestellung-service"
 import { toast } from "@/hooks/use-toast"
 
 interface Event {
@@ -19,13 +38,49 @@ interface Event {
   end_date: string | null
 }
 
-interface Nachbestellung {
-  id: string
-  event_id: string
-  event_name: string
-  created_at: string
-  status: string
-  total_items: number
+const getStatusColor = (status: Nachbestellung["status"]) => {
+  switch (status) {
+    case "offen":
+      return "bg-blue-100 text-blue-800 border-blue-200"
+    case "in_bearbeitung":
+      return "bg-yellow-100 text-yellow-800 border-yellow-200"
+    case "abgeschlossen":
+      return "bg-green-100 text-green-800 border-green-200"
+    case "storniert":
+      return "bg-red-100 text-red-800 border-red-200"
+    default:
+      return "bg-gray-100 text-gray-800 border-gray-200"
+  }
+}
+
+const getStatusIcon = (status: Nachbestellung["status"]) => {
+  switch (status) {
+    case "offen":
+      return <Clock className="h-3 w-3" />
+    case "in_bearbeitung":
+      return <Package className="h-3 w-3" />
+    case "abgeschlossen":
+      return <CheckCircle className="h-3 w-3" />
+    case "storniert":
+      return <XCircle className="h-3 w-3" />
+    default:
+      return <Clock className="h-3 w-3" />
+  }
+}
+
+const getStatusText = (status: Nachbestellung["status"]) => {
+  switch (status) {
+    case "offen":
+      return "Offen"
+    case "in_bearbeitung":
+      return "In Bearbeitung"
+    case "abgeschlossen":
+      return "Abgeschlossen"
+    case "storniert":
+      return "Storniert"
+    default:
+      return status
+  }
 }
 
 export function NachbestellungenPage() {
@@ -45,6 +100,11 @@ export function NachbestellungenPage() {
       setLoading(true)
       const supabase = createClient()
 
+      // Get current user
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
       // Get all events
       const { data: eventsData, error: eventsError } = await supabase
         .from("events")
@@ -62,9 +122,9 @@ export function NachbestellungenPage() {
         setEvents(eventsData || [])
       }
 
-      // Load existing nachbestellungen
-      // For now, we'll keep this part simple
-      setNachbestellungen([])
+      // Load nachbestellungen
+      const nachbestellungenData = await getNachbestellungen(user?.id)
+      setNachbestellungen(nachbestellungenData)
     } catch (error) {
       console.error("Error loading data:", error)
       toast({
@@ -83,14 +143,84 @@ export function NachbestellungenPage() {
     nachbestellung.event_name.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
+  const openNachbestellungen = filteredNachbestellungen.filter((n) => n.status !== "abgeschlossen")
+  const completedNachbestellungen = filteredNachbestellungen.filter((n) => n.status === "abgeschlossen")
+
   const handleEventSelect = (event: Event) => {
-    // Navigate to create nachbestellung for this event
     router.push(`/app/nachbestellungen/${event.id}`)
   }
 
-  const handleNachbestellungOpen = (nachbestellung: Nachbestellung) => {
-    // Navigate to open existing nachbestellung
-    router.push(`/app/nachbestellungen/edit/${nachbestellung.id}`)
+  const handleNachbestellungView = (nachbestellung: Nachbestellung) => {
+    router.push(`/app/nachbestellungen/view/${nachbestellung.id}`)
+  }
+
+  const handleStatusChange = async (nachbestellungId: number, newStatus: Nachbestellung["status"]) => {
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const success = await updateNachbestellungStatus(nachbestellungId, newStatus, user?.id)
+
+      if (success) {
+        // Update local state
+        setNachbestellungen((prev) =>
+          prev.map((n) =>
+            n.id === nachbestellungId ? { ...n, status: newStatus, updated_at: new Date().toISOString() } : n,
+          ),
+        )
+
+        toast({
+          title: "Status aktualisiert",
+          description: `Nachbestellung wurde als "${getStatusText(newStatus)}" markiert`,
+        })
+      } else {
+        toast({
+          title: "Fehler",
+          description: "Status konnte nicht aktualisiert werden",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error updating status:", error)
+      toast({
+        title: "Fehler",
+        description: "Ein unerwarteter Fehler ist aufgetreten",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDelete = async (nachbestellungId: number) => {
+    if (!confirm("Sind Sie sicher, dass Sie diese Nachbestellung löschen möchten?")) {
+      return
+    }
+
+    try {
+      const success = await deleteNachbestellung(nachbestellungId)
+
+      if (success) {
+        setNachbestellungen((prev) => prev.filter((n) => n.id !== nachbestellungId))
+        toast({
+          title: "Nachbestellung gelöscht",
+          description: "Die Nachbestellung wurde erfolgreich gelöscht",
+        })
+      } else {
+        toast({
+          title: "Fehler",
+          description: "Nachbestellung konnte nicht gelöscht werden",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error deleting nachbestellung:", error)
+      toast({
+        title: "Fehler",
+        description: "Ein unerwarteter Fehler ist aufgetreten",
+        variant: "destructive",
+      })
+    }
   }
 
   const formatDate = (dateString: string | null) => {
@@ -100,6 +230,17 @@ export function NachbestellungenPage() {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
+    })
+  }
+
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     })
   }
 
@@ -127,21 +268,21 @@ export function NachbestellungenPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="border border-gray-400 rounded-lg p-6">
-        {/* Header with Back Button in one row with frames */}
-        <div className="flex items-center gap-4 mb-8">
+    <div className="container mx-auto p-4 sm:p-6 max-w-4xl">
+      <div className="border border-gray-400 rounded-lg p-4 sm:p-6">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-6 sm:mb-8">
           <Button
             variant="outline"
             size="icon"
             onClick={() => router.push("/app")}
-            className="border-gray-300 hover:bg-gray-50"
+            className="border-gray-300 hover:bg-gray-50 flex-shrink-0"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-semibold text-gray-900 mb-2">Nachbestellung auswählen</h1>
-            <p className="text-gray-600">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-2">Nachbestellung auswählen</h1>
+            <p className="text-sm sm:text-base text-gray-600">
               Wählen Sie ein Event für eine Nachbestellung oder verwalten Sie bestehende Nachbestellungen
             </p>
           </div>
@@ -149,17 +290,29 @@ export function NachbestellungenPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="erstellen" className="flex items-center gap-2">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="erstellen" className="flex items-center gap-1 text-xs sm:text-sm">
               <Package className="h-4 w-4" />
-              Nachbestellung erstellen
+              <span className="hidden sm:inline">Nachbestellung erstellen</span>
+              <span className="sm:hidden">Erstellen</span>
             </TabsTrigger>
-            <TabsTrigger value="offen" className="flex items-center gap-2">
+            <TabsTrigger value="offen" className="flex items-center gap-1 text-xs sm:text-sm">
               <Calendar className="h-4 w-4" />
-              Offene Nachbestellungen
-              {nachbestellungen.length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {nachbestellungen.length}
+              <span className="hidden sm:inline">Offene Nachbestellungen</span>
+              <span className="sm:hidden">Offen</span>
+              {openNachbestellungen.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {openNachbestellungen.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="abgeschlossen" className="flex items-center gap-1 text-xs sm:text-sm">
+              <CheckCircle className="h-4 w-4" />
+              <span className="hidden sm:inline">Abgeschlossene Nachbestellungen</span>
+              <span className="sm:hidden">Abgeschlossen</span>
+              {completedNachbestellungen.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {completedNachbestellungen.length}
                 </Badge>
               )}
             </TabsTrigger>
@@ -200,10 +353,13 @@ export function NachbestellungenPage() {
                   >
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-1">{event.name}</h3>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1 truncate">
+                            {event.name}
+                          </h3>
                           <p className="text-sm text-gray-600">{formatDateRange(event.date, event.end_date)}</p>
                         </div>
+                        <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0 ml-2" />
                       </div>
                     </CardContent>
                   </Card>
@@ -214,38 +370,166 @@ export function NachbestellungenPage() {
 
           {/* Offene Nachbestellungen Tab */}
           <TabsContent value="offen" className="space-y-4">
-            {filteredNachbestellungen.length === 0 ? (
+            {openNachbestellungen.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <Package className="h-12 w-12 text-gray-400 mb-4" />
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Keine offenen Nachbestellungen</h3>
-                  <p className="text-gray-600 text-center">Sie haben derzeit keine offenen Nachbestellungen.</p>
+                  <p className="text-gray-600 text-center">
+                    {searchTerm
+                      ? "Keine offenen Nachbestellungen entsprechen Ihrer Suche."
+                      : "Sie haben derzeit keine offenen Nachbestellungen."}
+                  </p>
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-3">
-                {filteredNachbestellungen.map((nachbestellung) => (
-                  <Card key={nachbestellung.id} className="hover:shadow-md transition-shadow cursor-pointer">
+                {openNachbestellungen.map((nachbestellung) => (
+                  <Card key={nachbestellung.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-lg font-semibold text-gray-900">{nachbestellung.event_name}</h3>
-                            <Badge variant={nachbestellung.status === "offen" ? "default" : "secondary"}>
-                              {nachbestellung.status}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
+                              {nachbestellung.event_name}
+                            </h3>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs flex items-center gap-1 ${getStatusColor(nachbestellung.status)}`}
+                            >
+                              {getStatusIcon(nachbestellung.status)}
+                              {getStatusText(nachbestellung.status)}
                             </Badge>
                           </div>
-                          <p className="text-sm text-gray-600">
-                            Erstellt am {formatDate(nachbestellung.created_at)} • {nachbestellung.total_items} Artikel
-                          </p>
+
+                          <div className="space-y-1 text-sm text-gray-600">
+                            <p>Erstellt am {formatDateTime(nachbestellung.created_at)}</p>
+                            <p>
+                              {nachbestellung.total_items} Artikel ({nachbestellung.total_products} Produkte,{" "}
+                              {nachbestellung.total_ingredients} Zutaten)
+                            </p>
+                            {nachbestellung.notes && (
+                              <p className="text-xs text-gray-500 truncate">Notiz: {nachbestellung.notes}</p>
+                            )}
+                          </div>
                         </div>
-                        <Button
-                          onClick={() => handleNachbestellungOpen(nachbestellung)}
-                          variant="outline"
-                          className="ml-4"
-                        >
-                          Öffnen
-                        </Button>
+
+                        {/* Actions */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onClick={() => handleNachbestellungView(nachbestellung)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Anzeigen
+                            </DropdownMenuItem>
+
+                            {nachbestellung.status === "offen" && (
+                              <DropdownMenuItem onClick={() => handleStatusChange(nachbestellung.id, "in_bearbeitung")}>
+                                <Package className="h-4 w-4 mr-2" />
+                                In Bearbeitung
+                              </DropdownMenuItem>
+                            )}
+
+                            {(nachbestellung.status === "offen" || nachbestellung.status === "in_bearbeitung") && (
+                              <DropdownMenuItem onClick={() => handleStatusChange(nachbestellung.id, "abgeschlossen")}>
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Abschließen
+                              </DropdownMenuItem>
+                            )}
+
+                            {nachbestellung.status !== "abgeschlossen" && (
+                              <DropdownMenuItem
+                                onClick={() => handleDelete(nachbestellung.id)}
+                                className="text-red-600 focus:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Löschen
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Abgeschlossene Nachbestellungen Tab */}
+          <TabsContent value="abgeschlossen" className="space-y-4">
+            {completedNachbestellungen.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <CheckCircle className="h-12 w-12 text-gray-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Keine abgeschlossenen Nachbestellungen</h3>
+                  <p className="text-gray-600 text-center">
+                    {searchTerm
+                      ? "Keine abgeschlossenen Nachbestellungen entsprechen Ihrer Suche."
+                      : "Sie haben derzeit keine abgeschlossenen Nachbestellungen."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {completedNachbestellungen.map((nachbestellung) => (
+                  <Card key={nachbestellung.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
+                              {nachbestellung.event_name}
+                            </h3>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs flex items-center gap-1 ${getStatusColor(nachbestellung.status)}`}
+                            >
+                              {getStatusIcon(nachbestellung.status)}
+                              {getStatusText(nachbestellung.status)}
+                            </Badge>
+                          </div>
+
+                          <div className="space-y-1 text-sm text-gray-600">
+                            <p>Erstellt am {formatDateTime(nachbestellung.created_at)}</p>
+                            {nachbestellung.completed_at && (
+                              <p>Abgeschlossen am {formatDateTime(nachbestellung.completed_at)}</p>
+                            )}
+                            <p>
+                              {nachbestellung.total_items} Artikel ({nachbestellung.total_products} Produkte,{" "}
+                              {nachbestellung.total_ingredients} Zutaten)
+                            </p>
+                            {nachbestellung.notes && (
+                              <p className="text-xs text-gray-500 truncate">Notiz: {nachbestellung.notes}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions for completed orders */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onClick={() => handleNachbestellungView(nachbestellung)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Anzeigen
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(nachbestellung.id)}
+                              className="text-red-600 focus:text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Löschen
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </CardContent>
                   </Card>

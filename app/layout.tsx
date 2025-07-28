@@ -45,8 +45,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* PWA Icons */}
+        {/* Favicon */}
         <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="shortcut icon" href="/favicon.ico" />
+
+        {/* PWA Icons */}
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
         <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
