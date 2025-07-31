@@ -137,25 +137,39 @@ export function EventSelector() {
       return
     }
 
-    const event = await createEvent({
-      name: newEvent.name,
-      type: newEvent.type,
-      date: date ? format(date, "yyyy-MM-dd") : null,
-      end_date: endDate ? format(endDate, "yyyy-MM-dd") : null, // Add this line
-      ft: newEvent.ft.length > 0 ? newEvent.ft.join(" & ") : null,
-      ka: newEvent.ka.length > 0 ? newEvent.ka.join(" & ") : null,
-    })
-
-    if (event) {
-      setEvents([event, ...events])
-      setNewEvent({
-        name: "",
-        type: "Catering",
-        ft: [],
-        ka: [],
+    try {
+      const event = await createEvent({
+        name: newEvent.name,
+        type: newEvent.type,
+        date: date ? format(date, "yyyy-MM-dd") : null,
+        end_date: endDate ? format(endDate, "yyyy-MM-dd") : null,
+        ft: newEvent.ft.length > 0 ? newEvent.ft.join(" & ") : null,
+        ka: newEvent.ka.length > 0 ? newEvent.ka.join(" & ") : null,
       })
-      setActiveTab("upcoming")
-      router.push(`/app/packliste/${event.id}`)
+
+      if (event) {
+        setEvents([event, ...events])
+        setNewEvent({
+          name: "",
+          type: "Catering",
+          ft: [],
+          ka: [],
+        })
+        setDate(new Date())
+        setEndDate(undefined)
+        setActiveTab("upcoming")
+        router.push(`/app/packliste/${event.id}`)
+      } else {
+        throw new Error("Failed to create event")
+      }
+    } catch (error) {
+      console.error("Error creating event:", error)
+      toast({
+        title: "Fehler beim Erstellen",
+        description:
+          error instanceof Error ? error.message : "Event konnte nicht erstellt werden. Bitte versuchen Sie es erneut.",
+        variant: "destructive",
+      })
     }
   }
 
