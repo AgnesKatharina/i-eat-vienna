@@ -1,9 +1,9 @@
-import { EventSelector } from "@/components/event-selector"
+import { EventSelectorSimple } from "@/components/event-selector-simple"
 
 export default function PacklistePage() {
   return (
     <div className="container mx-auto py-8">
-      <EventSelector />
+      <EventSelectorSimple />
     </div>
   )
 }
