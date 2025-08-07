@@ -12,6 +12,7 @@ export interface Nachbestellung {
   created_at: string
   updated_at: string
   created_by?: string
+  creator_email?: string
   completed_at?: string
   completed_by?: string
 }
@@ -27,9 +28,14 @@ export interface NachbestellungItem {
   packaging_unit?: string
   category?: string
   notes?: string
-  status: "offen" | "bestellt" | "erhalten" | "storniert"
+  status: "offen" | "bestellt" | "erhalten" | "storniert" | "erledigt"
+  is_packed: boolean
   created_at: string
   updated_at: string
+}
+
+export interface NachbestellungWithItems extends Nachbestellung {
+  items: NachbestellungItem[]
 }
 
 interface CreateNachbestellungData {
@@ -95,6 +101,7 @@ export async function createNachbestellung(
       packaging_unit: product.packagingUnit,
       category: product.category,
       status: "offen" as const,
+      is_packed: false,
     }))
 
     // Create items for ingredients
@@ -108,6 +115,7 @@ export async function createNachbestellung(
       packaging_unit: ingredient.packagingUnit,
       category: ingredient.category,
       status: "offen" as const,
+      is_packed: false,
     }))
 
     // Insert all items
@@ -134,6 +142,9 @@ export async function getNachbestellungen(userId?: string): Promise<Nachbestellu
   try {
     const supabase = createClient()
 
+    console.log("Fetching nachbestellungen for user:", userId)
+
+    // Fetch all nachbestellungen (not filtering by user for now, as they might be shared)
     const { data, error } = await supabase
       .from("nachbestellungen")
       .select("*")
@@ -144,6 +155,7 @@ export async function getNachbestellungen(userId?: string): Promise<Nachbestellu
       return []
     }
 
+    console.log("Fetched nachbestellungen:", data)
     return data || []
   } catch (error) {
     console.error("Error in getNachbestellungen:", error)
@@ -151,11 +163,11 @@ export async function getNachbestellungen(userId?: string): Promise<Nachbestellu
   }
 }
 
-export async function getNachbestellungById(
-  id: number,
-): Promise<{ nachbestellung: Nachbestellung; items: NachbestellungItem[] } | null> {
+export async function getNachbestellungById(id: number): Promise<NachbestellungWithItems | null> {
   try {
     const supabase = createClient()
+
+    console.log("Fetching nachbestellung with ID:", id)
 
     // Get the nachbestellung
     const { data: nachbestellung, error: nachbestellungError } = await supabase
@@ -167,6 +179,30 @@ export async function getNachbestellungById(
     if (nachbestellungError) {
       console.error("Error fetching nachbestellung:", nachbestellungError)
       return null
+    }
+
+    console.log("Nachbestellung data:", nachbestellung)
+
+    // Get creator email if created_by exists
+    let creator_email = "Unbekannt"
+    if (nachbestellung.created_by) {
+      try {
+        // Try to get the current user first
+        const {
+          data: { user: currentUser },
+        } = await supabase.auth.getUser()
+
+        if (currentUser && currentUser.id === nachbestellung.created_by) {
+          creator_email = currentUser.email || "Unbekannt"
+        } else {
+          // For other users, we can't access their auth data directly from client
+          // We'll show a shortened UUID for privacy
+          creator_email = `${nachbestellung.created_by.substring(0, 8)}...`
+        }
+      } catch (emailError) {
+        console.error("Error fetching creator email:", emailError)
+        creator_email = `${nachbestellung.created_by.substring(0, 8)}...`
+      }
     }
 
     // Get the items
@@ -182,8 +218,11 @@ export async function getNachbestellungById(
       return null
     }
 
+    console.log("Nachbestellung items:", items)
+
     return {
-      nachbestellung,
+      ...nachbestellung,
+      creator_email,
       items: items || [],
     }
   } catch (error) {
@@ -220,6 +259,54 @@ export async function updateNachbestellungStatus(
     return true
   } catch (error) {
     console.error("Error in updateNachbestellungStatus:", error)
+    return false
+  }
+}
+
+export async function updateItemPackedStatus(itemId: number, isPacked: boolean): Promise<boolean> {
+  try {
+    const supabase = createClient()
+
+    const { error } = await supabase
+      .from("nachbestellung_items")
+      .update({
+        is_packed: isPacked,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", itemId)
+
+    if (error) {
+      console.error("Error updating item packed status:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error in updateItemPackedStatus:", error)
+    return false
+  }
+}
+
+export async function updateItemStatus(itemId: number, status: NachbestellungItem["status"]): Promise<boolean> {
+  try {
+    const supabase = createClient()
+
+    const { error } = await supabase
+      .from("nachbestellung_items")
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", itemId)
+
+    if (error) {
+      console.error("Error updating item status:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error in updateItemStatus:", error)
     return false
   }
 }

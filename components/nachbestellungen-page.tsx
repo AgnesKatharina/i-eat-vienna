@@ -424,7 +424,7 @@ export function NachbestellungenPage() {
                           <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem onClick={() => handleNachbestellungView(nachbestellung)}>
                               <Eye className="h-4 w-4 mr-2" />
-                              Anzeigen
+                              Bearbeiten
                             </DropdownMenuItem>
 
                             {nachbestellung.status === "offen" && (
@@ -519,7 +519,7 @@ export function NachbestellungenPage() {
                           <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem onClick={() => handleNachbestellungView(nachbestellung)}>
                               <Eye className="h-4 w-4 mr-2" />
-                              Anzeigen
+                              Bearbeiten
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleDelete(nachbestellung.id)}
