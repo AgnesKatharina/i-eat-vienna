@@ -57,6 +57,7 @@ export async function createEvent(event: {
   end_date: string | null
   ft: string | null
   ka: string | null
+  notes?: string
 }): Promise<Event | null> {
   try {
     const supabase = createClient()
@@ -70,6 +71,7 @@ export async function createEvent(event: {
           end_date: event.end_date,
           ft: event.ft,
           ka: event.ka,
+          notes: event.notes || '',
           print: false,
           finished: false,
         },
@@ -98,6 +100,7 @@ export async function updateEvent(
     end_date?: string | null
     ft?: string | null
     ka?: string | null
+    notes?: string
   },
 ): Promise<Event | null> {
   try {
@@ -218,6 +221,23 @@ export async function updateFinishedStatus(id: string, isFinished: boolean): Pro
     return true
   } catch (error) {
     console.error("Error in updateFinishedStatus:", error)
+    return false
+  }
+}
+
+export async function updateEventNotes(id: string, notes: string): Promise<boolean> {
+  try {
+    const supabase = createClient()
+    const { error } = await supabase.from("events").update({ notes }).eq("id", id)
+
+    if (error) {
+      console.error("Error updating event notes:", error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error in updateEventNotes:", error)
     return false
   }
 }

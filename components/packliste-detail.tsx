@@ -3,8 +3,16 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Save, Edit, FileDown, Search, CheckCircle, Trash2 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Save, ArrowLeft, Edit, FileDown, Search, CheckCircle, Trash2 } from "lucide-react"
+import { format } from "date-fns"
+import { de } from "date-fns/locale"
+import { generatePdf } from "@/lib/pdf-generator"
+import type { SelectedProduct, CalculatedIngredient, EventDetails } from "@/lib/types"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Dialog,
@@ -14,23 +22,69 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { format } from "date-fns"
-import { de } from "date-fns/locale"
 import { unitPlurals } from "@/lib/data"
-import { getEvent, saveEventProducts, getEventProducts, updateEvent, updatePrintReadyStatus } from "@/lib/event-service"
+import {
+  getEvent,
+  saveEventProducts,
+  getEventProducts,
+  updateEvent,
+  updatePrintReadyStatus,
+  updateEventNotes,
+} from "@/lib/event-service"
 import { getAllProducts, getCategories, getBatchRecipesAndPackaging } from "@/lib/supabase-service"
-import { generatePdf } from "@/lib/pdf-generator"
 import { PacklisteSkeleton } from "@/components/packliste-skeleton"
-import type { SelectedProduct, EventDetails, CalculatedIngredient, Event } from "@/lib/types"
+import type { Event } from "@/lib/types"
 import type { ProductWithCategory } from "@/lib/supabase-service"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 
 interface PacklisteDetailProps {
   eventId: string
 }
+
+interface EventData {
+  id: string
+  name: string
+  type: string
+  date?: string
+  endDate?: string
+  ft?: string
+  ka?: string
+  notes?: string
+  selectedProducts?: Record<string, SelectedProduct>
+  calculatedIngredients?: Record<string, CalculatedIngredient>
+}
+
+const EVENT_TYPES = [
+  "Catering",
+  "Event",
+  "Hochzeit",
+  "Geburtstag",
+  "Firmenfeier",
+  "Messe",
+  "Workshop",
+  "Seminar",
+  "Konferenz",
+  "Party",
+  "Sonstige",
+]
+
+const FT_OPTIONS = [
+  { value: "none", label: "Keine Auswahl" },
+  { value: "FT1", label: "FT1" },
+  { value: "FT2", label: "FT2" },
+  { value: "FT3", label: "FT3" },
+  { value: "FT4", label: "FT4" },
+  { value: "FT5", label: "FT5" },
+]
+
+const KA_OPTIONS = [
+  { value: "none", label: "Keine Auswahl" },
+  { value: "KA1", label: "KA1" },
+  { value: "KA2", label: "KA2" },
+  { value: "KA3", label: "KA3" },
+  { value: "KA4", label: "KA4" },
+  { value: "KA5", label: "KA5" },
+]
 
 export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const router = useRouter()
@@ -39,6 +93,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
 
   // State variables
   const [event, setEvent] = useState<Event | null>(null)
+  const [eventData, setEventData] = useState<EventData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [selectedProducts, setSelectedProducts] = useState<Record<string, SelectedProduct>>({})
@@ -51,7 +106,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     date: "",
     supplierName: "",
   })
-
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [isUnsavedChangesDialogOpen, setIsUnsavedChangesDialogOpen] = useState(false)
   const [initialSelectedProducts, setInitialSelectedProducts] = useState<Record<string, SelectedProduct>>({})
@@ -63,20 +117,26 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     date: "",
     supplierName: "",
   })
-
   const [isDeleteAllDialogOpen, setIsDeleteAllDialogOpen] = useState(false)
   const [categoryToDelete, setCategoryToDelete] = useState<string>("")
   const [productCategories, setProductCategories] = useState<Record<string, string>>({})
+  const [ingredientFoodTypes, setIngredientFoodTypes] = useState<Record<string, string>>({})
   const [isPrintReady, setIsPrintReady] = useState(false)
   const [isFinished, setIsFinished] = useState(false)
   const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false)
   const [printPreviewContent, setPrintPreviewContent] = useState<string>("")
   const [showSaveSuccess, setShowSaveSuccess] = useState(false)
+  const [notes, setNotes] = useState("")
+  const [startDate, setStartDate] = useState<Date>()
+  const [endDate, setEndDate] = useState<Date>()
 
   // Add this state after the other state declarations (around line 60)
   const [tempInputValues, setTempInputValues] = useState<Record<string, string>>({})
   // Add this state after the tempInputValues state declaration (around line 61)
   const [originalInputValues, setOriginalInputValues] = useState<Record<string, number>>({})
+
+  // Add state for shared notes functionality
+  const [initialNotes, setInitialNotes] = useState<string>("")
 
   // Define the correct order of categories for Packliste mode
   const packlisteCategories = ["Essen", "Getränke Pet", "Getränke Glas", "Getränke Spezial", "Equipment", "Kassa"]
@@ -93,9 +153,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     Record<string, { pro_verpackung: number; verpackungseinheit: string }>
   >({})
   const [searchTerm, setSearchTerm] = useState("")
-
-  // Add state for ingredient food classifications
-  const [ingredientFoodTypes, setIngredientFoodTypes] = useState<Record<string, string>>({})
 
   // Edit form state - Updated with arrays for FT and KA
   const [editForm, setEditForm] = useState({
@@ -210,6 +267,12 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           setEvent(eventData)
           setIsPrintReady(eventData.print || false)
           setIsFinished(eventData.finished || false)
+
+          // Load notes from database
+          const eventNotes = eventData.notes || ""
+          setNotes(eventNotes)
+          setInitialNotes(eventNotes)
+
           setEventDetails({
             type: eventData.type || "Catering",
             name: eventData.name || "",
@@ -217,6 +280,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             ka: eventData.ka || "",
             date: eventData.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
             supplierName: "",
+            notes: eventNotes, // Add notes to eventDetails
           })
           setEditDate(eventData.date ? new Date(eventData.date) : undefined)
           setEditEndDate(eventData.end_date ? new Date(eventData.end_date) : undefined)
@@ -281,6 +345,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           ka: eventData?.ka || "",
           date: eventData?.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
           supplierName: "",
+          notes: eventNotes, // Add notes to initial event details
         })
 
         // Also store initial status values for comparison
@@ -375,8 +440,21 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     // Check if status flags have changed
     const statusChanged = (event?.print || false) !== isPrintReady || (event?.finished || false) !== isFinished
 
-    setHasUnsavedChanges(productsChanged || eventDetailsChanged || statusChanged)
-  }, [selectedProducts, event, eventDetails, initialSelectedProducts, initialEventDetails, isPrintReady, isFinished])
+    // Check if notes have changed
+    const notesChanged = notes !== initialNotes
+
+    setHasUnsavedChanges(productsChanged || eventDetailsChanged || statusChanged || notesChanged)
+  }, [
+    selectedProducts,
+    event,
+    eventDetails,
+    initialSelectedProducts,
+    initialEventDetails,
+    isPrintReady,
+    isFinished,
+    notes,
+    initialNotes,
+  ])
 
   // Helper functions
   const getUnitPlural = useCallback((quantity: number, unit: string): string => {
@@ -611,6 +689,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const handleSave = async () => {
     setSaving(true)
     try {
+      // Save event products
       await saveEventProducts(
         eventId,
         Object.entries(selectedProducts).map(([productName, details]) => ({
@@ -619,6 +698,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           unit: details.unit,
         })),
       )
+
+      // Save notes if they have changed
+      if (notes !== initialNotes) {
+        const notesSuccess = await updateEventNotes(eventId, notes)
+        if (!notesSuccess) {
+          throw new Error("Failed to save notes")
+        }
+      }
 
       // Reset the initial state after successful save
       setInitialSelectedProducts(selectedProducts)
@@ -630,10 +717,15 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         date: event?.date ? new Date(event.date).toISOString().split("T")[0] : "",
         endDate: event?.end_date ? new Date(event.end_date).toISOString().split("T")[0] : "",
         supplierName: eventDetails.supplierName,
+        notes: notes, // Update initial notes
       })
-      // Update the event state to reflect current status values
+
+      // Reset notes initial state
+      setInitialNotes(notes)
+
+      // Update the event state to reflect current status values and notes
       if (event) {
-        setEvent({ ...event, print: isPrintReady, finished: isFinished })
+        setEvent({ ...event, print: isPrintReady, finished: isFinished, notes })
       }
       setHasUnsavedChanges(false)
 
@@ -699,6 +791,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           ka: updated.ka || "",
           date: updated.date ? new Date(updated.date).toISOString().split("T")[0] : "",
           supplierName: eventDetails.supplierName,
+          notes: notes, // Keep current notes
         }
         setEventDetails(newEventDetails)
         setInitialEventDetails(newEventDetails)
@@ -722,7 +815,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     if (!event) return
 
     try {
-      // Create the print preview content including end date
+      // Create the print preview content including end date and notes
       const currentEventDetails: EventDetails = {
         type: event.type || "Catering",
         name: event.name || "",
@@ -731,6 +824,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         date: event.date ? format(new Date(event.date), "dd.MM.yyyy", { locale: de }) : "",
         endDate: event.end_date ? format(new Date(event.end_date), "dd.MM.yyyy", { locale: de }) : "",
         supplierName: "",
+        notes: notes, // Include current notes
       }
 
       // Generate HTML content for print preview
@@ -760,7 +854,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     if (!event) return
 
     try {
-      // Update eventDetails with current event data including end date
+      // Update eventDetails with current event data including end date and notes
       const currentEventDetails: EventDetails = {
         type: event.type || "Catering",
         name: event.name || "",
@@ -769,6 +863,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         date: event.date ? format(new Date(event.date), "dd.MM.yyyy", { locale: de }) : "",
         endDate: event.end_date ? format(new Date(event.end_date), "dd.MM.yyyy", { locale: de }) : "",
         supplierName: "",
+        notes: notes, // Include current notes for PDF
       }
 
       await generatePdf(
@@ -928,7 +1023,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           flex-shrink: 0;
         }
         .ingredients-section {
-          page-break-before: always;
           margin-top: 30px;
         }
         .ingredients-title {
@@ -978,6 +1072,27 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           font-size: 14px;
           font-weight: normal;
           color: #666;
+        }
+        .special-infos-section {
+          margin-top: 30px;
+          margin-bottom: 30px;
+        }
+        .special-infos-title {
+          font-size: 16px;
+          font-weight: bold;
+          margin-bottom: 10px;
+          text-decoration: underline;
+        }
+        .special-infos-box {
+          border: 2px solid #333;
+          padding: 15px;
+          min-height: 80px;
+          background-color: #f9f9f9;
+        }
+        .special-infos-content {
+          font-size: 12px;
+          line-height: 1.5;
+          white-space: pre-wrap;
         }
         .signature-box {
           margin-top: 30px;
@@ -1121,6 +1236,18 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       html += `
       </div>
     `
+    }
+
+    // Add Special Infos section if notes exist
+    if (eventDetails.notes && eventDetails.notes.trim() !== "") {
+      html += `
+        <div class="special-infos-section">
+          <div class="special-infos-title">Special Infos</div>
+          <div class="special-infos-box">
+            <div class="special-infos-content">${eventDetails.notes.replace(/\n/g, "<br>")}</div>
+          </div>
+        </div>
+      `
     }
 
     // Add signature box with updated footer format
@@ -1519,6 +1646,38 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             ))}
           </TabsList>
         </Tabs>
+
+        {/* Shared Notes Section - Always Visible */}
+        <div className="bg-white p-4 rounded-lg shadow-sm border">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                />
+              </svg>
+              <span className="text-sm font-medium text-gray-700">Notizen (optional)</span>
+            </div>
+            <span className="text-xs text-gray-500">{notes.length}/1000 Zeichen</span>
+          </div>
+
+          <div className="space-y-2">
+            <Textarea
+              value={notes}
+              onChange={(e) => {
+                if (e.target.value.length <= 1000) {
+                  setNotes(e.target.value)
+                }
+              }}
+              placeholder="Zusätzliche Informationen zur Packliste..."
+              className="w-full p-3 border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              rows={6}
+            />
+          </div>
+        </div>
 
         {/* Clear Category Button for Active Category */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">

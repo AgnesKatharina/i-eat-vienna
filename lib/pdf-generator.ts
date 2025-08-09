@@ -159,6 +159,22 @@ class CustomTable {
 
     return this.currentY
   }
+
+  private drawFooter() {
+    const startX = this.margin
+    const endX = this.doc.internal.pageSize.getWidth() - this.margin
+    const textY = this.doc.internal.pageSize.getHeight() - 10
+
+    // Footer text
+    this.doc.setFont("helvetica", "normal")
+    this.doc.setFontSize(10)
+    this.doc.setTextColor(128, 128, 128)
+    this.doc.text(`Seite ${this.doc.internal.getNumberOfPages()}`, endX, textY, { align: "right" })
+
+    // Footer border
+    this.doc.setDrawColor(0, 0, 0)
+    this.doc.line(startX, textY - 5, endX, textY - 5)
+  }
 }
 
 export async function generatePdf(
@@ -259,6 +275,73 @@ export async function generatePdf(
     doc.line(20, pageHeight - 15, pageWidth - 20, pageHeight - 15)
   }
 
+  const drawSpecialInfosSection = (notes: string, currentY: number) => {
+    if (!notes || notes.trim() === "") return currentY
+
+    // Calculate the required height based on content
+    const specialInfosBoxWidth = pageWidth - 40
+    const maxWidth = specialInfosBoxWidth - 10 // Leave some padding
+
+    // Set font for measurement
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(10)
+
+    // Split notes into lines that fit within the box width
+    const lines = doc.splitTextToSize(notes, maxWidth)
+    const lineHeight = 5 // Increased line height for better readability
+    const minBoxHeight = 20 // Minimum height for the box
+    const padding = 10 // Top and bottom padding inside the box
+
+    // Calculate required height: number of lines * line height + padding
+    const contentHeight = lines.length * lineHeight
+    const specialInfosBoxHeight = Math.max(minBoxHeight, contentHeight + padding)
+
+    // Check if we need a new page for special infos
+    const totalSectionHeight = 25 + specialInfosBoxHeight // Title + box height
+    if (currentY + totalSectionHeight > pageHeight - 60) {
+      doc.addPage()
+      currentPageNumber++
+      drawHeader()
+      drawFooter()
+      doc.setTextColor(0, 0, 0)
+      currentY = 25
+    }
+
+    // Add some space before special infos
+    currentY += 15
+
+    // Special Infos section title
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "bold")
+    doc.text("Special Infos", 20, currentY)
+    doc.line(20, currentY + 2, pageWidth - 20, currentY + 2)
+    currentY += 10
+
+    // Draw special infos box border with calculated height
+    doc.setDrawColor(0, 0, 0)
+    doc.rect(20, currentY, specialInfosBoxWidth, specialInfosBoxHeight)
+
+    // Special Infos text
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(10)
+    doc.setTextColor(0, 0, 0)
+
+    // Draw the text lines with improved spacing and bounds checking
+    let textY = currentY + 8
+    const maxTextY = currentY + specialInfosBoxHeight - 5 // Leave some bottom margin
+
+    lines.forEach((line: string) => {
+      // Only draw if we have space and the line fits
+      if (textY <= maxTextY) {
+        doc.text(line, 25, textY)
+        textY += lineHeight
+      }
+    })
+
+    currentY += specialInfosBoxHeight + 10
+    return currentY
+  }
+
   const drawSignatureSection = () => {
     const signatureY = pageHeight - 50
     const signatureHeight = 25
@@ -330,7 +413,7 @@ export async function generatePdf(
     doc.setFontSize(9)
     yPosition += 8
 
-    const maxYPosition = pageHeight - 25
+    const maxYPosition = pageHeight - 25 // LESS AGGRESSIVE - changed from pageHeight - 25
     const maxProductsInCategory = Math.max(0, ...sortedCategories.map((cat) => productsByCategory[cat].length))
 
     // Draw products in columns
@@ -408,14 +491,16 @@ export async function generatePdf(
     doc.setTextColor(0, 0, 0)
   }
 
+  let currentY = 25
+
   // Add ingredients table if available
   if (Object.keys(calculatedIngredients).length > 0) {
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
-    doc.text("Zutaten", 20, 25)
-    doc.line(20, 28, pageWidth - 20, 28)
+    doc.text("Zutaten", 20, currentY)
+    doc.line(20, currentY + 3, pageWidth - 20, currentY + 3)
 
-    let currentY = 35
+    currentY += 10
 
     // Separate ingredients by food classification
     const foodIngredients: Record<string, CalculatedIngredient> = {}
@@ -497,10 +582,9 @@ export async function generatePdf(
       Object.entries(ingredients)
         .sort(([a], [b]) => a.localeCompare(b))
         .forEach(([ingredient, details], rowIndex) => {
-          // Check if we need a new page - less conservative margin for signature
-          if (currentY + 12 > pageHeight - 40) {
-            // Changed from -80 to -40
-            // Increased row height check
+          // Check if we need a new page - LESS AGGRESSIVE
+          if (currentY + 12 > pageHeight - 30) {
+            // Changed from 40 to 30
             doc.addPage()
             currentPageNumber++
             drawHeader()
@@ -629,6 +713,11 @@ export async function generatePdf(
 
     // Draw Food section second - no forced page break, let it flow naturally
     currentY = drawIngredientsSection(foodIngredients, "Food")
+  }
+
+  // Add Special Infos section if notes exist
+  if (eventDetails.notes && eventDetails.notes.trim() !== "") {
+    currentY = drawSpecialInfosSection(eventDetails.notes, currentY)
   }
 
   // Generate filename
