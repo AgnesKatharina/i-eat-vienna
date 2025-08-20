@@ -9,6 +9,7 @@ import { CategoryManager } from "@/components/category-manager"
 import { ProductManager } from "@/components/product-manager"
 import { RecipeManager } from "@/components/recipe-manager"
 import { PackagingManager } from "@/components/packaging-manager"
+import { EquipmentManager } from "@/components/equipment-manager"
 
 export function ProductManagementDashboard() {
   const router = useRouter()
@@ -35,11 +36,12 @@ export function ProductManagementDashboard() {
 
       <div className="bg-white rounded-lg shadow-md p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-4 mb-8">
+          <TabsList className="grid grid-cols-5 mb-8">
             <TabsTrigger value="categories">Kategorien</TabsTrigger>
             <TabsTrigger value="products">Produkte</TabsTrigger>
             <TabsTrigger value="recipes">Rezepte</TabsTrigger>
             <TabsTrigger value="packaging">Verpackungen</TabsTrigger>
+            <TabsTrigger value="equipment">Foodtruck Equipment</TabsTrigger>
           </TabsList>
 
           <TabsContent value="categories" className="space-y-4">
@@ -79,6 +81,16 @@ export function ProductManagementDashboard() {
               </div>
             ) : (
               <PackagingManager />
+            )}
+          </TabsContent>
+
+          <TabsContent value="equipment" className="space-y-4">
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+              </div>
+            ) : (
+              <EquipmentManager />
             )}
           </TabsContent>
         </Tabs>

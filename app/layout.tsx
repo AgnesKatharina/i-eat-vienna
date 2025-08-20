@@ -34,7 +34,7 @@ export const metadata = {
     title: "I Eat Vienna",
     description: "Food ordering and inventory management system",
   },
-    generator: 'v0.dev'
+    generator: 'v0.app'
 }
 
 export default function RootLayout({

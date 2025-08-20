@@ -20,7 +20,7 @@ export interface Nachbestellung {
 export interface NachbestellungItem {
   id: number
   nachbestellung_id: number
-  item_type: "product" | "ingredient"
+  item_type: "product" | "ingredient" | "equipment"
   item_id: number
   item_name: string
   quantity: number
@@ -57,6 +57,22 @@ interface CreateNachbestellungData {
     packagingUnit: string
     category: string
   }>
+  allProducts: Array<{
+    id: string
+    name: string
+    quantity: number
+    unit: string
+    packagingUnit: string
+    category: string
+  }>
+  equipment: Array<{
+    id: string
+    name: string
+    quantity: number
+    unit: string
+    packagingUnit: string
+    category: string
+  }>
   notes?: string
 }
 
@@ -67,7 +83,7 @@ export async function createNachbestellung(
   try {
     const supabase = createClient()
 
-    const totalItems = data.products.length + data.ingredients.length
+    const totalItems = data.products.length + data.ingredients.length + data.allProducts.length + data.equipment.length
 
     // Create the main nachbestellung record
     const { data: nachbestellung, error: nachbestellungError } = await supabase
@@ -77,7 +93,7 @@ export async function createNachbestellung(
         event_name: data.event_name,
         status: "offen",
         total_items: totalItems,
-        total_products: data.products.length,
+        total_products: data.products.length + data.allProducts.length,
         total_ingredients: data.ingredients.length,
         notes: data.notes,
         created_by: userId,
@@ -118,8 +134,36 @@ export async function createNachbestellung(
       is_packed: false,
     }))
 
+    // Create items for all products
+    const allProductItems = data.allProducts.map((product) => ({
+      nachbestellung_id: nachbestellung.id,
+      item_type: "product" as const,
+      item_id: Number.parseInt(product.id),
+      item_name: product.name,
+      quantity: product.quantity,
+      unit: product.unit,
+      packaging_unit: product.packagingUnit,
+      category: product.category,
+      status: "offen" as const,
+      is_packed: false,
+    }))
+
+    // Create items for equipment (from foodtruck_equipment table)
+    const equipmentItems = data.equipment.map((equipment) => ({
+      nachbestellung_id: nachbestellung.id,
+      item_type: "equipment" as const,
+      item_id: Number.parseInt(equipment.id),
+      item_name: equipment.name,
+      quantity: equipment.quantity,
+      unit: equipment.unit,
+      packaging_unit: equipment.packagingUnit,
+      category: equipment.category,
+      status: "offen" as const,
+      is_packed: false,
+    }))
+
     // Insert all items
-    const allItems = [...productItems, ...ingredientItems]
+    const allItems = [...productItems, ...ingredientItems, ...allProductItems, ...equipmentItems]
     if (allItems.length > 0) {
       const { error: itemsError } = await supabase.from("nachbestellung_items").insert(allItems)
 

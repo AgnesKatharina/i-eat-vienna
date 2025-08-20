@@ -8,9 +8,13 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, Search, Package, ChefHat, ShoppingCart, Plus, Minus, FileText } from "lucide-react"
+import { ArrowLeft, Search, Package, ChefHat, ShoppingCart, Plus, Minus, FileText, Wrench, List } from "lucide-react"
 import { createClient } from "@/lib/supabase-client"
-import { getEventProductsFromSupabase, getEventIngredientsFromSupabase } from "@/lib/supabase-service"
+import {
+  getAllFoodtruckEquipment,
+  getFoodtruckName,
+  calculateIngredientsForEvent,
+} from "@/lib/foodtruck-equipment-service"
 import { createNachbestellung } from "@/lib/nachbestellung-service"
 import { toast } from "@/hooks/use-toast"
 
@@ -40,6 +44,15 @@ interface Ingredient {
   category: string
   packagingUnit: string
   used_in_products: string[]
+  reorderQuantity: number
+}
+
+interface Equipment {
+  id: string
+  name: string
+  foodtruck: string
+  unit: string
+  packagingUnit: string
   reorderQuantity: number
 }
 
@@ -99,6 +112,8 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
   const [activeTab, setActiveTab] = useState("products")
   const [notes, setNotes] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+  const [allProducts, setAllProducts] = useState<Product[]>([])
+  const [equipmentProducts, setEquipmentProducts] = useState<Equipment[]>([])
 
   useEffect(() => {
     loadEventData()
@@ -109,6 +124,9 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
       setLoading(true)
       const supabase = createClient()
 
+      console.log("🚀 === STARTING EVENT DATA LOAD ===")
+      console.log("📅 Event ID:", eventId)
+
       // Get event details
       const { data: eventData, error: eventError } = await supabase
         .from("events")
@@ -117,7 +135,7 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
         .single()
 
       if (eventError) {
-        console.error("Error loading event:", eventError)
+        console.error("❌ Error loading event:", eventError)
         toast({
           title: "Fehler",
           description: "Event konnte nicht geladen werden",
@@ -126,52 +144,129 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
         return
       }
 
+      console.log("✅ Event data loaded:", eventData)
       setEvent(eventData)
 
-      // Load actual event products from database
-      const eventProducts = await getEventProductsFromSupabase(Number.parseInt(eventId))
-      console.log("Loaded event products:", eventProducts)
+      // Load event products - using the correct column names
+      console.log("🍽️ === LOADING EVENT PRODUCTS ===")
+      const { data: eventProductsData, error: eventProductsError } = await supabase
+        .from("event_products")
+        .select("*")
+        .eq("event_id", Number.parseInt(eventId))
+
+      console.log("📦 Raw event_products data:", eventProductsData)
+      console.log("📦 Event products count:", eventProductsData?.length || 0)
+
+      if (eventProductsError) {
+        console.error("❌ Error loading event products:", eventProductsError)
+      }
 
       // Transform event products to the expected format
-      const transformedProducts: Product[] = eventProducts.map((eventProduct) => {
-        const productName = eventProduct.product?.name || "Unknown Product"
-        const unit = eventProduct.unit
-        return {
-          id: eventProduct.id.toString(),
-          name: productName,
-          category: eventProduct.product?.category?.name || "Uncategorized",
-          quantity: eventProduct.quantity,
-          unit: unit,
-          packagingUnit: getPackagingUnit(productName, unit),
-          reorderQuantity: 0,
-        }
-      })
+      const transformedProducts: Product[] = []
 
+      if (eventProductsData && eventProductsData.length > 0) {
+        console.log("🔄 Processing event products...")
+        eventProductsData.forEach((eventProduct, index) => {
+          console.log(`🔍 Processing event product ${index + 1}:`, eventProduct)
+
+          const productName = eventProduct.product_name || "Unknown Product"
+          const unit = eventProduct.unit || "Stück"
+          const category = "Event Product" // We don't have category info from event_products
+
+          const transformedProduct = {
+            id: eventProduct.id.toString(),
+            name: productName,
+            category: category,
+            quantity: eventProduct.quantity || 0,
+            unit: unit,
+            packagingUnit: getPackagingUnit(productName, unit),
+            reorderQuantity: 0,
+          }
+
+          transformedProducts.push(transformedProduct)
+          console.log("✅ Added transformed product:", transformedProduct)
+        })
+      } else {
+        console.log("⚠️ No event products found for event ID:", eventId)
+      }
+
+      console.log("📦 Final transformed products:", transformedProducts)
       setProducts(transformedProducts)
 
-      // Load actual event ingredients from database
-      const eventIngredients = await getEventIngredientsFromSupabase(Number.parseInt(eventId))
-      console.log("Loaded event ingredients:", eventIngredients)
+      // Load ingredients using the new service
+      console.log("🥬 === LOADING INGREDIENTS ===")
+      try {
+        const calculatedIngredients = await calculateIngredientsForEvent(eventId)
 
-      // Transform event ingredients to the expected format
-      const transformedIngredients: Ingredient[] = eventIngredients.map((ingredient) => {
-        const ingredientName = ingredient.ingredient_name
-        const unit = ingredient.ingredient_unit
-        return {
-          id: ingredient.ingredient_id.toString(),
-          name: ingredientName,
-          quantity: Math.round(ingredient.quantity_needed * 100) / 100, // Round to 2 decimal places
-          unit: unit,
-          category: ingredient.category || "Zutat",
-          packagingUnit: getPackagingUnit(ingredientName, unit),
-          used_in_products: ingredient.used_in_products?.map((p: any) => p.product_name) || [],
+        // Transform EventIngredient to Ingredient format
+        const transformedIngredients: Ingredient[] = calculatedIngredients.map((eventIngredient) => ({
+          id: eventIngredient.ingredient_id,
+          name: eventIngredient.ingredient_name,
+          quantity: eventIngredient.total_amount,
+          unit: eventIngredient.unit,
+          category: "Zutat",
+          packagingUnit: getPackagingUnit(eventIngredient.ingredient_name, eventIngredient.unit),
+          used_in_products: eventIngredient.used_in_products,
           reorderQuantity: 0,
-        }
-      })
+        }))
 
-      setIngredients(transformedIngredients)
+        console.log("🎯 Final transformed ingredients:", transformedIngredients)
+        setIngredients(transformedIngredients)
+      } catch (ingredientError) {
+        console.error("❌ Error loading ingredients:", ingredientError)
+        setIngredients([])
+      }
+
+      // Load all products from database for "Alle Produkte" tab
+      console.log("📚 Loading all products...")
+      const { data: allProductsData, error: allProductsError } = await supabase
+        .from("products")
+        .select(`
+          id,
+          name,
+          unit,
+          categories(name)
+        `)
+        .order("name")
+
+      if (!allProductsError && allProductsData) {
+        const transformedAllProducts: Product[] = allProductsData.map((product) => ({
+          id: product.id.toString(),
+          name: product.name,
+          category: product.categories?.name || "Uncategorized",
+          quantity: 0,
+          unit: product.unit,
+          packagingUnit: getPackagingUnit(product.name, product.unit),
+          reorderQuantity: 0,
+        }))
+        setAllProducts(transformedAllProducts)
+        console.log("✅ All products loaded:", transformedAllProducts.length)
+      }
+
+      // Load foodtruck equipment from new table
+      console.log("🚛 Loading foodtruck equipment...")
+      try {
+        const equipmentData = await getAllFoodtruckEquipment()
+        console.log("✅ Loaded foodtruck equipment:", equipmentData)
+
+        const transformedEquipment: Equipment[] = equipmentData.map((equipment) => ({
+          id: equipment.id.toString(),
+          name: equipment.name,
+          foodtruck: getFoodtruckName(equipment.foodtruck),
+          unit: equipment.unit,
+          packagingUnit: equipment.unit,
+          reorderQuantity: 0,
+        }))
+        setEquipmentProducts(transformedEquipment)
+        console.log("✅ Equipment transformed:", transformedEquipment.length)
+      } catch (equipmentError) {
+        console.error("❌ Error loading equipment:", equipmentError)
+        setEquipmentProducts([])
+      }
+
+      console.log("🎉 === EVENT DATA LOAD COMPLETE ===")
     } catch (error) {
-      console.error("Error loading event data:", error)
+      console.error("💥 Fatal error loading event data:", error)
       toast({
         title: "Fehler",
         description: "Daten konnten nicht geladen werden",
@@ -194,6 +289,18 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
       ingredient.category.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
+  const filteredAllProducts = allProducts.filter(
+    (product) =>
+      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.category.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+
+  const filteredEquipmentProducts = equipmentProducts.filter(
+    (equipment) =>
+      equipment.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      equipment.foodtruck.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+
   const handleProductQuantityChange = (productId: string, value: number) => {
     setProducts(
       products.map((product) => (product.id === productId ? { ...product, reorderQuantity: value } : product)),
@@ -208,11 +315,31 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
     )
   }
 
+  const handleAllProductQuantityChange = (productId: string, value: number) => {
+    setAllProducts(
+      allProducts.map((product) => (product.id === productId ? { ...product, reorderQuantity: value } : product)),
+    )
+  }
+
+  const handleEquipmentQuantityChange = (equipmentId: string, value: number) => {
+    setEquipmentProducts(
+      equipmentProducts.map((equipment) =>
+        equipment.id === equipmentId ? { ...equipment, reorderQuantity: value } : equipment,
+      ),
+    )
+  }
+
   const handleCreateReorder = async () => {
     const selectedProductsData = products.filter((p) => p.reorderQuantity > 0)
     const selectedIngredientsData = ingredients.filter((i) => i.reorderQuantity > 0)
+    const selectedAllProductsData = allProducts.filter((p) => p.reorderQuantity > 0)
+    const selectedEquipmentData = equipmentProducts.filter((e) => e.reorderQuantity > 0)
 
-    const totalSelected = selectedProductsData.length + selectedIngredientsData.length
+    const totalSelected =
+      selectedProductsData.length +
+      selectedIngredientsData.length +
+      selectedAllProductsData.length +
+      selectedEquipmentData.length
     if (totalSelected === 0) {
       toast({
         title: "Keine Auswahl",
@@ -234,7 +361,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
     setIsCreating(true)
 
     try {
-      // Get current user (you might need to implement this based on your auth system)
       const supabase = createClient()
       const {
         data: { user },
@@ -259,6 +385,22 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           packagingUnit: i.packagingUnit,
           category: i.category,
         })),
+        allProducts: selectedAllProductsData.map((p) => ({
+          id: p.id,
+          name: p.name,
+          quantity: p.reorderQuantity,
+          unit: p.unit,
+          packagingUnit: p.packagingUnit,
+          category: p.category,
+        })),
+        equipment: selectedEquipmentData.map((e) => ({
+          id: e.id,
+          name: e.name,
+          quantity: e.reorderQuantity,
+          unit: e.unit,
+          packagingUnit: e.packagingUnit,
+          category: e.foodtruck,
+        })),
         notes: notes.trim() || undefined,
       }
 
@@ -270,7 +412,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           description: `${totalSelected} Artikel für Nachbestellung gespeichert`,
         })
 
-        // Navigate back to nachbestellungen page
         router.push("/app/nachbestellungen")
       } else {
         toast({
@@ -338,7 +479,10 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
 
   const selectedProductsCount = products.filter((p) => p.reorderQuantity > 0).length
   const selectedIngredientsCount = ingredients.filter((i) => i.reorderQuantity > 0).length
-  const totalSelectedCount = selectedProductsCount + selectedIngredientsCount
+  const selectedAllProductsCount = allProducts.filter((p) => p.reorderQuantity > 0).length
+  const selectedEquipmentCount = equipmentProducts.filter((e) => e.reorderQuantity > 0).length
+  const totalSelectedCount =
+    selectedProductsCount + selectedIngredientsCount + selectedAllProductsCount + selectedEquipmentCount
 
   return (
     <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
@@ -376,11 +520,11 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="products" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <ChefHat className="h-4 w-4" />
-              <span className="hidden sm:inline">Produkte</span>
-              <span className="sm:hidden">Produkte</span>
+              <span className="hidden sm:inline">Produkte ({filteredProducts.length})</span>
+              <span className="sm:hidden">Produkte ({filteredProducts.length})</span>
               {selectedProductsCount > 0 && (
                 <Badge variant="secondary" className="ml-1 text-xs">
                   {selectedProductsCount}
@@ -389,11 +533,31 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
             </TabsTrigger>
             <TabsTrigger value="ingredients" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
               <ShoppingCart className="h-4 w-4" />
-              <span className="hidden sm:inline">Zutaten</span>
-              <span className="sm:hidden">Zutaten</span>
+              <span className="hidden sm:inline">Zutaten ({filteredIngredients.length})</span>
+              <span className="sm:hidden">Zutaten ({filteredIngredients.length})</span>
               {selectedIngredientsCount > 0 && (
                 <Badge variant="secondary" className="ml-1 text-xs">
                   {selectedIngredientsCount}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="equipment" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+              <Wrench className="h-4 w-4" />
+              <span className="hidden sm:inline">Equipment ({filteredEquipmentProducts.length})</span>
+              <span className="sm:hidden">Equipment ({filteredEquipmentProducts.length})</span>
+              {selectedEquipmentCount > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {selectedEquipmentCount}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="all-products" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+              <List className="h-4 w-4" />
+              <span className="hidden sm:inline">Alle Produkte ({filteredAllProducts.length})</span>
+              <span className="sm:hidden">Alle ({filteredAllProducts.length})</span>
+              {selectedAllProductsCount > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {selectedAllProductsCount}
                 </Badge>
               )}
             </TabsTrigger>
@@ -401,10 +565,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
 
           {/* Products Tab */}
           <TabsContent value="products" className="space-y-4">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-gray-600">{filteredProducts.length} Produkte gefunden</p>
-            </div>
-
             {filteredProducts.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
@@ -425,7 +585,9 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">{product.name}</h3>
-                          <p className="text-xs text-gray-500">{product.category}</p>
+                          <p className="text-xs text-gray-500">
+                            {product.category} • {product.quantity} {product.unit} im Event
+                          </p>
                         </div>
 
                         {/* Quantity selector */}
@@ -478,10 +640,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
 
           {/* Ingredients Tab */}
           <TabsContent value="ingredients" className="space-y-4">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-gray-600">{filteredIngredients.length} Zutaten gefunden</p>
-            </div>
-
             {filteredIngredients.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
@@ -490,7 +648,7 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                   <p className="text-gray-600 text-center">
                     {searchTerm
                       ? "Keine Zutaten entsprechen Ihrer Suche."
-                      : "Für dieses Event wurden keine Zutaten gefunden."}
+                      : "Für dieses Event wurden keine Zutaten berechnet. Überprüfen Sie die Browser-Konsole für Details."}
                   </p>
                 </CardContent>
               </Card>
@@ -505,7 +663,8 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                             {ingredient.name}
                           </h3>
                           <p className="text-xs text-gray-500 truncate">
-                            Verwendet in: {ingredient.used_in_products.join(", ")}
+                            Benötigt: {ingredient.quantity} {ingredient.unit} • Verwendet in:{" "}
+                            {ingredient.used_in_products.join(", ")}
                           </p>
                         </div>
 
@@ -556,6 +715,150 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
               </div>
             )}
           </TabsContent>
+
+          {/* Equipment Tab */}
+          <TabsContent value="equipment" className="space-y-4">
+            {filteredEquipmentProducts.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <Wrench className="h-12 w-12 text-gray-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Kein Equipment gefunden</h3>
+                  <p className="text-gray-600 text-center">
+                    {searchTerm ? "Kein Equipment entspricht Ihrer Suche." : "Kein Equipment verfügbar."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-3">
+                {filteredEquipmentProducts.map((equipment) => (
+                  <Card key={equipment.id} className="hover:shadow-sm transition-shadow">
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">
+                            {equipment.name}
+                          </h3>
+                          <p className="text-xs text-gray-500">{equipment.foodtruck}</p>
+                        </div>
+
+                        {/* Quantity selector */}
+                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                const newValue = Math.max(0, equipment.reorderQuantity - 1)
+                                handleEquipmentQuantityChange(equipment.id, newValue)
+                              }}
+                              disabled={equipment.reorderQuantity <= 0}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={equipment.reorderQuantity}
+                              onChange={(e) => {
+                                const value = Number.parseInt(e.target.value) || 0
+                                handleEquipmentQuantityChange(equipment.id, Math.max(0, value))
+                              }}
+                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                handleEquipmentQuantityChange(equipment.id, equipment.reorderQuantity + 1)
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
+                            {equipment.packagingUnit}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* All Products Tab */}
+          <TabsContent value="all-products" className="space-y-4">
+            {filteredAllProducts.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <List className="h-12 w-12 text-gray-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Keine Produkte gefunden</h3>
+                  <p className="text-gray-600 text-center">
+                    {searchTerm ? "Keine Produkte entsprechen Ihrer Suche." : "Keine Produkte verfügbar."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-3">
+                {filteredAllProducts.map((product) => (
+                  <Card key={product.id} className="hover:shadow-sm transition-shadow">
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">{product.name}</h3>
+                          <p className="text-xs text-gray-500">{product.category}</p>
+                        </div>
+
+                        {/* Quantity selector */}
+                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                const newValue = Math.max(0, product.reorderQuantity - 1)
+                                handleAllProductQuantityChange(product.id, newValue)
+                              }}
+                              disabled={product.reorderQuantity <= 0}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={product.reorderQuantity}
+                              onChange={(e) => {
+                                const value = Number.parseInt(e.target.value) || 0
+                                handleAllProductQuantityChange(product.id, Math.max(0, value))
+                              }}
+                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 rounded-md bg-transparent"
+                              onClick={() => {
+                                handleAllProductQuantityChange(product.id, product.reorderQuantity + 1)
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
+                            {product.packagingUnit}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         {/* Notes Section */}
@@ -588,7 +891,8 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                   {totalSelectedCount} Artikel ausgewählt
                 </p>
                 <p className="text-xs sm:text-sm text-gray-600">
-                  {selectedProductsCount} Produkte, {selectedIngredientsCount} Zutaten
+                  {selectedProductsCount} Event-Produkte, {selectedIngredientsCount} Zutaten, {selectedEquipmentCount}{" "}
+                  Equipment, {selectedAllProductsCount} Alle Produkte
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
@@ -597,6 +901,8 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                   onClick={() => {
                     setProducts(products.map((p) => ({ ...p, reorderQuantity: 0 })))
                     setIngredients(ingredients.map((i) => ({ ...i, reorderQuantity: 0 })))
+                    setAllProducts(allProducts.map((p) => ({ ...p, reorderQuantity: 0 })))
+                    setEquipmentProducts(equipmentProducts.map((e) => ({ ...e, reorderQuantity: 0 })))
                     setNotes("")
                   }}
                   className="text-xs sm:text-sm"
