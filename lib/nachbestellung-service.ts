@@ -20,7 +20,7 @@ export interface Nachbestellung {
 export interface NachbestellungItem {
   id: number
   nachbestellung_id: number
-  item_type: "product" | "ingredient" | "equipment"
+  item_type: "product" | "ingredient" // Updated interface to reflect actual database constraint - only "product" and "ingredient" are allowed
   item_id: number
   item_name: string
   quantity: number
@@ -148,10 +148,10 @@ export async function createNachbestellung(
       is_packed: false,
     }))
 
-    // Create items for equipment (from foodtruck_equipment table)
+    // Create items for equipment (from foodtruck_geschirr table)
     const equipmentItems = data.equipment.map((equipment) => ({
       nachbestellung_id: nachbestellung.id,
-      item_type: "equipment" as const,
+      item_type: "ingredient" as const, // Updated to reflect actual database constraint
       item_id: Number.parseInt(equipment.id),
       item_name: equipment.name,
       quantity: equipment.quantity,

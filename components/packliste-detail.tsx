@@ -37,8 +37,29 @@ import type { Event } from "@/lib/types"
 import type { ProductWithCategory } from "@/lib/supabase-service"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 
-interface PacklisteDetailProps {
-  eventId: string
+interface Product {
+  id: number
+  name: string
+  category: string
+  unit: string
+  price?: number
+  supplier?: string
+  notes?: string
+  is_recipe?: boolean
+  recipe_yield?: number
+  ingredients?: Array<{
+    product_id: number
+    quantity: number
+    unit: string
+    product_name: string
+  }>
+}
+
+interface EventProduct {
+  product_id: number
+  quantity: number
+  is_packed: boolean
+  notes?: string
 }
 
 interface EventData {
@@ -85,6 +106,10 @@ const KA_OPTIONS = [
   { value: "KA4", label: "KA4" },
   { value: "KA5", label: "KA5" },
 ]
+
+interface PacklisteDetailProps {
+  eventId: string
+}
 
 export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
   const router = useRouter()
@@ -263,13 +288,14 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           getAllProducts(),
         ])
 
+        const eventNotes = eventData?.notes || ""
+
         if (eventData) {
           setEvent(eventData)
           setIsPrintReady(eventData.print || false)
           setIsFinished(eventData.finished || false)
 
           // Load notes from database
-          const eventNotes = eventData.notes || ""
           setNotes(eventNotes)
           setInitialNotes(eventNotes)
 
@@ -338,6 +364,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
         setPackagingUnits(recipesAndPackaging.packaging)
 
         setInitialSelectedProducts(productMap)
+
         setInitialEventDetails({
           type: eventData?.type || "Catering",
           name: eventData?.name || "",
@@ -345,12 +372,12 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           ka: eventData?.ka || "",
           date: eventData?.date ? new Date(eventData.date).toISOString().split("T")[0] : "",
           supplierName: "",
-          notes: eventNotes, // Add notes to initial event details
+          notes: eventNotes, // Now eventNotes is properly scoped
         })
 
         // Also store initial status values for comparison
-        const initialPrintReady = eventData.print || false
-        const initialFinished = eventData.finished || false
+        const initialPrintReady = eventData?.print || false
+        const initialFinished = eventData?.finished || false
       } catch (error) {
         console.error("Error loading data:", error)
         toast({
@@ -1711,7 +1738,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       </div>
 
       {/* Products Grid - Improved for better name visibility */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
         {filteredProducts.map((product) => {
           const isSelected = productQuantities[product.name] && productQuantities[product.name] > 0
           const backgroundColorClass = isSelected
@@ -2198,7 +2225,7 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
             <div>
               <Label>Kühlanhänger</Label>
               <div className="grid grid-cols-3 gap-2 mt-2">
-                {["KA1", "KA2", "KA3", "KA4", "KA5"].map((ka) => (
+                {["KA 1", "KA 2", "KA 3", "KA 4", "KA 5"].map((ka) => (
                   <label key={ka} className="flex items-center space-x-2 cursor-pointer">
                     <input
                       type="checkbox"

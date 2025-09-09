@@ -2,12 +2,47 @@
 
 import jsPDF from "jspdf"
 import "jspdf-autotable"
-import type { SelectedProduct, CalculatedIngredient, EventDetails } from "@/lib/types"
+import type { Product, Event, NachbestellungItem, EventDetails } from "@/lib/types"
+import { calculateIngredientsForEvent } from "@/lib/foodtruck-equipment-service"
 
+// Extend jsPDF type to include autoTable
 declare module "jspdf" {
   interface jsPDF {
     autoTable: (options: any) => jsPDF
   }
+}
+
+interface PackagingInfo {
+  packaging: string
+  amountPerPackage: number
+  packagingCount: number
+}
+
+interface CalculatedIngredient {
+  totalAmount: number
+  unit: string
+  packaging: string
+  amountPerPackage: number
+  packagingCount: number
+}
+
+interface GroupedProducts {
+  [category: string]: Array<{
+    name: string
+    quantity: number
+    unit: string
+    packaging?: PackagingInfo
+  }>
+}
+
+interface IngredientWithPackaging {
+  name: string
+  totalAmount: number
+  unit: string
+  packaging: string
+  amountPerPackage: number
+  packagingCount: number
+  foodType?: string
 }
 
 interface TableColumn {
@@ -178,7 +213,7 @@ class CustomTable {
 }
 
 export async function generatePdf(
-  selectedProducts: Record<string, SelectedProduct>,
+  selectedProducts: Record<string, { quantity: number; unit: string }>,
   calculatedIngredients: Record<string, CalculatedIngredient>,
   eventDetails: EventDetails,
   formatWeight: (value: number, unit: string) => string,
@@ -574,7 +609,7 @@ export async function generatePdf(
 
       // Verify total width fits
       const totalTableWidth = colWidths.reduce((sum, w) => sum + w, 0)
-      console.log(`📏 Table width: ${totalTableWidth}mm, Available: ${availableWidth}mm`)
+      console.log(`📐 Table width: ${totalTableWidth}mm, Available: ${availableWidth}mm`)
 
       // Header background
       doc.setFillColor(230, 230, 230)
@@ -971,4 +1006,490 @@ export function generateSimpleShoppingListPDF(
   const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
   const filename = `${formattedDate}_${eventName.replace(/\s+/g, "_")}_Einkaufsliste.pdf`
   doc.save(filename)
+}
+
+export async function generatePacklistePdf(
+  event: Event,
+  selectedProducts: Record<string, { quantity: number; unit: string }>,
+  allProducts: Product[],
+): Promise<void> {
+  console.log("📄 === GENERATING PACKLISTE PDF ===")
+  console.log("🎯 Event:", event.name)
+  console.log("📦 Selected products count:", Object.keys(selectedProducts).length)
+
+  try {
+    // Initialize PDF in portrait format
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    })
+
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const margin = 20
+    const maxColumns = 3 // Reduced for portrait format
+    let yPosition = margin
+
+    console.log("📐 Page dimensions:", { pageWidth, pageHeight, margin })
+
+    // Add header
+    yPosition = addHeader(doc, event, yPosition, pageWidth, margin)
+
+    // Group products by category
+    console.log("🗂️ Grouping products by category...")
+    const groupedProducts = groupProductsByCategory(selectedProducts, allProducts)
+    console.log("📊 Categories found:", Object.keys(groupedProducts))
+
+    // Filter out empty categories and log what we're including
+    const categoriesWithProducts = Object.entries(groupedProducts).filter(([_, products]) => products.length > 0)
+    console.log(
+      "✅ Categories with products:",
+      categoriesWithProducts.map(([cat]) => cat),
+    )
+
+    if (categoriesWithProducts.length === 0) {
+      console.log("⚠️ No categories with products found")
+      doc.text("Keine Produkte ausgewählt", margin, yPosition)
+    } else {
+      // Calculate layout for categories
+      const totalCategories = categoriesWithProducts.length
+      const rows = Math.ceil(totalCategories / maxColumns)
+      const columnWidth = (pageWidth - 2 * margin) / maxColumns
+      const rowHeight = (pageHeight - yPosition - margin) / rows
+
+      console.log("📐 Layout:", { totalCategories, rows, maxColumns, columnWidth, rowHeight })
+
+      // Draw categories in grid layout
+      categoriesWithProducts.forEach(([category, products], index) => {
+        const row = Math.floor(index / maxColumns)
+        const col = index % maxColumns
+        const x = margin + col * columnWidth
+        const y = yPosition + row * rowHeight
+
+        console.log(`📝 Drawing category "${category}" at position (${x}, ${y})`)
+        drawCategoryColumn(doc, category, products, x, y, columnWidth - 10, rowHeight - 20)
+      })
+    }
+
+    // Add ingredients section on new page
+    doc.addPage()
+    yPosition = margin
+
+    console.log("-yyyy Adding ingredients section...")
+    try {
+      const ingredients = await calculateIngredientsForEvent(event.id!)
+      console.log("✅ Ingredients calculated:", ingredients.length)
+
+      if (ingredients.length > 0) {
+        yPosition = await drawIngredientsSection(doc, ingredients, yPosition, pageWidth, margin)
+      } else {
+        console.log("⚠️ No ingredients found for event")
+        doc.setFontSize(16)
+        doc.text("Zutaten", margin, yPosition)
+        yPosition += 15
+        doc.setFontSize(12)
+        doc.text("Keine Zutaten gefunden für dieses Event", margin, yPosition)
+      }
+    } catch (error) {
+      console.error("❌ Error calculating ingredients:", error)
+      doc.setFontSize(16)
+      doc.text("Zutaten", margin, yPosition)
+      yPosition += 15
+      doc.setFontSize(12)
+      doc.text("Fehler beim Berechnen der Zutaten", margin, yPosition)
+    }
+
+    // Save the PDF
+    const filename = `Packliste_${event.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`
+    console.log("💾 Saving PDF as:", filename)
+    doc.save(filename)
+    console.log("✅ PDF generated successfully!")
+  } catch (error) {
+    console.error("💥 Error generating PDF:", error)
+    throw error
+  }
+}
+
+function addHeader(doc: jsPDF, event: Event, yPosition: number, pageWidth: number, margin: number): number {
+  console.log("📋 Adding header for event:", event.name)
+
+  // Event name
+  doc.setFontSize(18)
+  doc.setFont("helvetica", "bold")
+  doc.text(event.name, margin, yPosition)
+  yPosition += 10
+
+  // Event details
+  doc.setFontSize(12)
+  doc.setFont("helvetica", "normal")
+  const details = []
+  if (event.type) details.push(`Typ: ${event.type}`)
+  if (event.date) details.push(`Datum: ${new Date(event.date).toLocaleDateString("de-DE")}`)
+  if (event.end_date) details.push(`bis ${new Date(event.end_date).toLocaleDateString("de-DE")}`)
+  if (event.ft) details.push(`FT: ${event.ft}`)
+  if (event.ka) details.push(`KA: ${event.ka}`)
+
+  const detailsText = details.join(" | ")
+  doc.text(detailsText, margin, yPosition)
+  yPosition += 15
+
+  // Add separator line
+  doc.setLineWidth(0.5)
+  doc.line(margin, yPosition, pageWidth - margin, yPosition)
+  yPosition += 10
+
+  return yPosition
+}
+
+function groupProductsByCategory(
+  selectedProducts: Record<string, { quantity: number; unit: string }>,
+  allProducts: Product[],
+): GroupedProducts {
+  console.log("🗂️ Grouping products by category...")
+
+  const grouped: GroupedProducts = {}
+
+  Object.entries(selectedProducts).forEach(([productName, selection]) => {
+    const product = allProducts.find((p) => p.name === productName)
+    const category = product?.category || "Sonstige"
+
+    console.log(`📦 Product: ${productName} → Category: ${category}`)
+
+    if (!grouped[category]) {
+      grouped[category] = []
+    }
+
+    grouped[category].push({
+      name: productName,
+      quantity: selection.quantity,
+      unit: selection.unit,
+    })
+  })
+
+  // Log final grouping
+  Object.entries(grouped).forEach(([category, products]) => {
+    console.log(`📊 Category "${category}": ${products.length} products`)
+  })
+
+  return grouped
+}
+
+function drawCategoryColumn(
+  doc: jsPDF,
+  category: string,
+  products: Array<{ name: string; quantity: number; unit: string }>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  console.log(`📝 Drawing category column: ${category} with ${products.length} products`)
+
+  let currentY = y
+
+  // Category header
+  doc.setFontSize(14)
+  doc.setFont("helvetica", "bold")
+  const categoryText = truncateText(doc, category, width - 5)
+  doc.text(categoryText, x + 2, currentY + 5)
+  currentY += 8
+
+  // Draw border around category
+  doc.setLineWidth(0.3)
+  doc.rect(x, y, width, Math.min(height, currentY - y + products.length * 6 + 5))
+
+  // Products
+  doc.setFontSize(10)
+  doc.setFont("helvetica", "normal")
+
+  products.forEach((product) => {
+    if (currentY + 6 > y + height - 5) return // Stop if we run out of space
+
+    // Checkbox
+    doc.rect(x + 2, currentY, 3, 3)
+
+    // Product name and quantity
+    const productText = `${truncateText(doc, product.name, width * 0.6)} - ${product.quantity} ${product.unit}`
+    doc.text(productText, x + 7, currentY + 2.5)
+    currentY += 6
+  })
+}
+
+async function drawIngredientsSection(
+  doc: jsPDF,
+  ingredients: any[],
+  yPosition: number,
+  pageWidth: number,
+  margin: number,
+): Promise<number> {
+  console.log("-yyyy Drawing ingredients section with", ingredients.length, "ingredients")
+
+  // Section title
+  doc.setFontSize(16)
+  doc.setFont("helvetica", "bold")
+  doc.text("Zutaten", margin, yPosition)
+  yPosition += 15
+
+  // Add separator line
+  doc.setLineWidth(0.5)
+  doc.line(margin, yPosition - 5, pageWidth - margin, yPosition - 5)
+
+  // Group ingredients by food type
+  const foodIngredients = ingredients.filter((ing) => ing.ingredient_name && !isNonFoodItem(ing.ingredient_name))
+  const nonFoodIngredients = ingredients.filter((ing) => ing.ingredient_name && isNonFoodItem(ing.ingredient_name))
+
+  console.log("🍎 Food ingredients:", foodIngredients.length)
+  console.log("📦 Non-food ingredients:", nonFoodIngredients.length)
+
+  // Draw Non Food section
+  if (nonFoodIngredients.length > 0) {
+    yPosition = drawIngredientTable(doc, "Non Food", nonFoodIngredients, yPosition, pageWidth, margin)
+    yPosition += 10
+  }
+
+  // Draw Food section
+  if (foodIngredients.length > 0) {
+    yPosition = drawIngredientTable(doc, "Food", foodIngredients, yPosition, pageWidth, margin)
+  }
+
+  return yPosition
+}
+
+function drawIngredientTable(
+  doc: jsPDF,
+  sectionTitle: string,
+  ingredients: any[],
+  yPosition: number,
+  pageWidth: number,
+  margin: number,
+): number {
+  console.log(`📊 Drawing ${sectionTitle} table with ${ingredients.length} ingredients`)
+
+  // Section subtitle
+  doc.setFontSize(12)
+  doc.setFont("helvetica", "bold")
+  doc.text(sectionTitle, margin, yPosition)
+  yPosition += 10
+
+  // Table setup - optimized for portrait format
+  const tableWidth = 170 // Total width that fits in portrait
+  const checkboxWidth = 12
+  const nameWidth = 50
+  const amountWidth = 70
+  const requiredWidth = 38
+
+  console.log("📐 Table dimensions:", { tableWidth, checkboxWidth, nameWidth, amountWidth, requiredWidth })
+
+  // Table headers
+  doc.setFontSize(10)
+  doc.setFont("helvetica", "bold")
+
+  // Header background
+  doc.setFillColor(240, 240, 240)
+  doc.rect(margin, yPosition, tableWidth, 10, "F")
+
+  // Header text
+  doc.text("", margin + 2, yPosition + 7) // Checkbox column
+  doc.text("Zutat", margin + checkboxWidth + 2, yPosition + 7)
+  doc.text("Gesamtmenge", margin + checkboxWidth + nameWidth + 2, yPosition + 7)
+  doc.text("Benötigte Menge", margin + checkboxWidth + nameWidth + amountWidth + 2, yPosition + 7)
+
+  // Header borders
+  doc.setLineWidth(0.3)
+  doc.rect(margin, yPosition, checkboxWidth, 10)
+  doc.rect(margin + checkboxWidth, yPosition, nameWidth, 10)
+  doc.rect(margin + checkboxWidth + nameWidth, yPosition, amountWidth, 10)
+  doc.rect(margin + checkboxWidth + nameWidth + amountWidth, yPosition, requiredWidth, 10)
+
+  yPosition += 10
+
+  // Table rows
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(9)
+
+  ingredients.forEach((ingredient, index) => {
+    const rowY = yPosition + index * 10
+
+    // Checkbox
+    doc.rect(margin + 4, rowY + 3, 3, 3)
+
+    // Ingredient name (truncated to fit)
+    const truncatedName = truncateText(doc, ingredient.ingredient_name, nameWidth - 4)
+    doc.text(truncatedName, margin + checkboxWidth + 2, rowY + 7)
+
+    // Total amount with packaging info
+    const totalAmountText = `${ingredient.total_amount} ${ingredient.unit}`
+    const truncatedAmount = truncateText(doc, totalAmountText, amountWidth - 4)
+    doc.text(truncatedAmount, margin + checkboxWidth + nameWidth + 2, rowY + 7)
+
+    // Required amount (calculated based on packaging)
+    const requiredAmount = Math.ceil(ingredient.total_amount / 1) // Simplified calculation
+    const requiredText = `${requiredAmount} ${ingredient.unit}`
+    const truncatedRequired = truncateText(doc, requiredText, requiredWidth - 4)
+    doc.text(truncatedRequired, margin + checkboxWidth + nameWidth + amountWidth + 2, rowY + 7)
+
+    // Row borders
+    doc.rect(margin, rowY, checkboxWidth, 10)
+    doc.rect(margin + checkboxWidth, rowY, nameWidth, 10)
+    doc.rect(margin + checkboxWidth + nameWidth, rowY, amountWidth, 10)
+    doc.rect(margin + checkboxWidth + nameWidth + amountWidth, rowY, requiredWidth, 10)
+  })
+
+  return yPosition + ingredients.length * 10 + 5
+}
+
+function isNonFoodItem(name: string): boolean {
+  const nonFoodKeywords = [
+    "box",
+    "karton",
+    "verpackung",
+    "beutel",
+    "tüte",
+    "becher",
+    "deckel",
+    "serviette",
+    "napkin",
+    "besteck",
+    "gabel",
+    "messer",
+    "löffel",
+    "teller",
+    "schale",
+    "dose",
+    "flasche",
+    "glas",
+    "reiniger",
+    "seife",
+    "handschuh",
+    "folie",
+    "papier",
+    "ketchup",
+    "mayo",
+    "senf",
+    "sauce",
+    "dressing",
+    "öl",
+    "essig",
+    "salz",
+    "pfeffer",
+    "gewürz",
+  ]
+
+  return nonFoodKeywords.some((keyword) => name.toLowerCase().includes(keyword.toLowerCase()))
+}
+
+function truncateText(doc: jsPDF, text: string, maxWidth: number): string {
+  const textWidth = doc.getTextWidth(text)
+  if (textWidth <= maxWidth) {
+    return text
+  }
+
+  // Binary search for the right length
+  let left = 0
+  let right = text.length
+  let result = text
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2)
+    const truncated = text.substring(0, mid) + "..."
+    const truncatedWidth = doc.getTextWidth(truncated)
+
+    if (truncatedWidth <= maxWidth) {
+      result = truncated
+      left = mid + 1
+    } else {
+      right = mid - 1
+    }
+  }
+
+  return result
+}
+
+export async function generateNachbestellungPdf(
+  nachbestellung: { name: string; supplier_name: string; date?: string; notes?: string },
+  items: NachbestellungItem[],
+): Promise<void> {
+  console.log("📄 === GENERATING NACHBESTELLUNG PDF ===")
+  console.log("🛒 Nachbestellung:", nachbestellung.name)
+  console.log("📦 Items count:", items.length)
+
+  try {
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    })
+
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 20
+    let yPosition = margin
+
+    // Header
+    doc.setFontSize(18)
+    doc.setFont("helvetica", "bold")
+    doc.text("Nachbestellung", margin, yPosition)
+    yPosition += 15
+
+    // Nachbestellung details
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "normal")
+    doc.text(`Name: ${nachbestellung.name}`, margin, yPosition)
+    yPosition += 8
+    doc.text(`Lieferant: ${nachbestellung.supplier_name}`, margin, yPosition)
+    yPosition += 8
+
+    if (nachbestellung.date) {
+      doc.text(`Datum: ${new Date(nachbestellung.date).toLocaleDateString("de-DE")}`, margin, yPosition)
+      yPosition += 8
+    }
+
+    if (nachbestellung.notes) {
+      doc.text(`Notizen: ${nachbestellung.notes}`, margin, yPosition)
+      yPosition += 8
+    }
+
+    yPosition += 10
+
+    // Items table
+    if (items.length > 0) {
+      const tableData = items.map((item) => [
+        item.product_name,
+        `${item.quantity} ${item.unit}`,
+        item.is_packed ? "✓" : "☐",
+      ])
+
+      doc.autoTable({
+        startY: yPosition,
+        head: [["Produkt", "Menge", "Gepackt"]],
+        body: tableData,
+        margin: { left: margin, right: margin },
+        styles: {
+          fontSize: 10,
+          cellPadding: 3,
+        },
+        headStyles: {
+          fillColor: [240, 240, 240],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+        },
+        columnStyles: {
+          0: { cellWidth: 100 },
+          1: { cellWidth: 40 },
+          2: { cellWidth: 20, halign: "center" },
+        },
+      })
+    } else {
+      doc.text("Keine Artikel in dieser Nachbestellung", margin, yPosition)
+    }
+
+    // Save PDF
+    const filename = `Nachbestellung_${nachbestellung.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`
+    console.log("💾 Saving PDF as:", filename)
+    doc.save(filename)
+    console.log("✅ PDF generated successfully!")
+  } catch (error) {
+    console.error("💥 Error generating nachbestellung PDF:", error)
+    throw error
+  }
 }

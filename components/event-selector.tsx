@@ -3,18 +3,32 @@
 import type React from "react"
 
 import { useState, useEffect, useMemo } from "react"
+import { useRouter } from "next/navigation"
+import { format, isAfter, isBefore, isSameDay, startOfDay } from "date-fns"
+import { de } from "date-fns/locale"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CalendarIcon, PlusCircle, Pencil, Trash2, Search, X, Copy } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/components/ui/use-toast"
+
+import { CalendarIcon, PlusCircle, Pencil, Trash2, Search, X, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { format, isAfter, isBefore, isSameDay, startOfDay } from "date-fns"
-import { de } from "date-fns/locale"
+
 import {
   getEvents,
   createEvent,
@@ -24,24 +38,20 @@ import {
   saveEventProducts,
   type Event,
 } from "@/lib/event-service"
-import { useRouter } from "next/navigation"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { useToast } from "@/components/ui/use-toast"
-import { Badge } from "@/components/ui/badge"
 
-export function EventSelector() {
+const EVENT_TYPES = ["Catering", "Verkauf", "Lieferung"]
+
+interface EventSelectorProps {
+  onEventSelect: (eventId: string) => void
+  mode: "packliste" | "nachbestellung"
+}
+
+export function EventSelector({ onEventSelect, mode }: EventSelectorProps) {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("new")
   const [date, setDate] = useState<Date | undefined>(new Date())
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined) // Add this line
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined)
   const [newEvent, setNewEvent] = useState({
     name: "",
     type: "Catering",
@@ -50,7 +60,7 @@ export function EventSelector() {
   })
   const [editingEvent, setEditingEvent] = useState<Event | null>(null)
   const [editDate, setEditDate] = useState<Date | undefined>(undefined)
-  const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined) // Add this line
+  const [editEndDate, setEditEndDate] = useState<Date | undefined>(undefined)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [eventToDelete, setEventToDelete] = useState<Event | null>(null)
@@ -157,8 +167,7 @@ export function EventSelector() {
         })
         setDate(new Date())
         setEndDate(undefined)
-        setActiveTab("upcoming")
-        router.push(`/app/packliste/${event.id}`)
+        onEventSelect(event.id.toString())
       } else {
         throw new Error("Failed to create event")
       }
@@ -177,7 +186,7 @@ export function EventSelector() {
     e.stopPropagation()
     setEditingEvent(event)
     setEditDate(event.date ? new Date(event.date) : undefined)
-    setEditEndDate(event.end_date ? new Date(event.end_date) : undefined) // Add this line
+    setEditEndDate(event.end_date ? new Date(event.end_date) : undefined)
     setIsEditDialogOpen(true)
   }
 
@@ -194,7 +203,7 @@ export function EventSelector() {
       name: editingEvent.name,
       type: editingEvent.type,
       date: editDate ? format(editDate, "yyyy-MM-dd") : null,
-      end_date: editEndDate ? format(editEndDate, "yyyy-MM-dd") : null, // Add this line
+      end_date: editEndDate ? format(editEndDate, "yyyy-MM-dd") : null,
       ft: editingEvent.ft || null,
       ka: editingEvent.ka || null,
     })
@@ -443,7 +452,7 @@ export function EventSelector() {
   return (
     <Card className="w-full max-w-3xl mx-auto">
       <CardHeader>
-        <CardTitle>Event auswählen</CardTitle>
+        <CardTitle>{mode === "packliste" ? "Packliste" : "Nachbestellung"} - Event auswählen</CardTitle>
         <CardDescription>Wählen Sie ein bestehendes Event oder erstellen Sie ein neues</CardDescription>
       </CardHeader>
       <CardContent>
@@ -487,9 +496,11 @@ export function EventSelector() {
                       <SelectValue placeholder="Typ auswählen" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Catering">Catering</SelectItem>
-                      <SelectItem value="Verkauf">Verkauf</SelectItem>
-                      <SelectItem value="Lieferung">Lieferung</SelectItem>
+                      {EVENT_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {type}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -692,120 +703,122 @@ export function EventSelector() {
                     <SelectValue placeholder="Typ auswählen" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Catering">Catering</SelectItem>
-                    <SelectItem value="Verkauf">Verkauf</SelectItem>
-                    <SelectItem value="Lieferung">Lieferung</SelectItem>
+                    {EVENT_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* Foodtruck and Kühlanhänger sections with proper checkbox layout */}
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-ft">Foodtruck</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
-                        {editingEvent?.ft ? editingEvent.ft : "FT auswählen"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-full p-0">
-                      <div className="p-4 space-y-2">
-                        {["FT1", "FT2", "FT3", "FT4", "FT5", "Indoor"].map((ft) => {
-                          const currentFTs = editingEvent?.ft ? editingEvent.ft.split(" & ") : []
-                          return (
-                            <div key={ft} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                id={`edit-ft-${ft}`}
-                                checked={currentFTs.includes(ft)}
-                                onChange={(e) => {
-                                  if (!editingEvent) return
-                                  const currentFTs = editingEvent.ft ? editingEvent.ft.split(" & ") : []
-                                  let newFTs
-                                  if (e.target.checked) {
-                                    newFTs = [...currentFTs, ft]
-                                  } else {
-                                    newFTs = currentFTs.filter((f) => f !== ft)
-                                  }
-                                  setEditingEvent({
-                                    ...editingEvent,
-                                    ft: newFTs.length > 0 ? newFTs.join(" & ") : null,
-                                  })
-                                }}
-                              />
-                              <label htmlFor={`edit-ft-${ft}`}>{ft}</label>
-                            </div>
-                          )
-                        })}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            if (editingEvent) {
-                              setEditingEvent({ ...editingEvent, ft: null })
-                            }
-                          }}
-                          className="w-full"
-                        >
-                          Alle abwählen
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  <Label>Foodtruck</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {["FT1", "FT2", "FT3", "FT4", "FT5", "Indoor"].map((ft) => {
+                      const currentFTs = editingEvent?.ft ? editingEvent.ft.split(" & ") : []
+                      return (
+                        <div key={ft} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={`edit-ft-${ft}`}
+                            checked={currentFTs.includes(ft)}
+                            onChange={(e) => {
+                              if (!editingEvent) return
+                              const currentFTs = editingEvent.ft ? editingEvent.ft.split(" & ") : []
+                              let newFTs
+                              if (e.target.checked) {
+                                newFTs = [...currentFTs, ft]
+                              } else {
+                                newFTs = currentFTs.filter((f) => f !== ft)
+                              }
+                              setEditingEvent({
+                                ...editingEvent,
+                                ft: newFTs.length > 0 ? newFTs.join(" & ") : null,
+                              })
+                            }}
+                          />
+                          <label htmlFor={`edit-ft-${ft}`} className="text-sm">
+                            {ft}
+                          </label>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="edit-ka">Kühlanhänger</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
-                        {editingEvent?.ka ? editingEvent.ka : "KA auswählen"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-full p-0">
-                      <div className="p-4 space-y-2">
-                        {["KA 1", "KA 2", "KA 3", "KA 4", "KA 5", "K-FZ"].map((ka) => {
-                          const currentKAs = editingEvent?.ka ? editingEvent.ka.split(" & ") : []
-                          return (
-                            <div key={ka} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                id={`edit-ka-${ka}`}
-                                checked={currentKAs.includes(ka)}
-                                onChange={(e) => {
-                                  if (!editingEvent) return
-                                  const currentKAs = editingEvent.ka ? editingEvent.ka.split(" & ") : []
-                                  let newKAs
-                                  if (e.target.checked) {
-                                    newKAs = [...currentKAs, ka]
-                                  } else {
-                                    newKAs = currentKAs.filter((k) => k !== ka)
-                                  }
-                                  setEditingEvent({
-                                    ...editingEvent,
-                                    ka: newKAs.length > 0 ? newKAs.join(" & ") : null,
-                                  })
-                                }}
-                              />
-                              <label htmlFor={`edit-ka-${ka}`}>{ka}</label>
-                            </div>
-                          )
-                        })}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            if (editingEvent) {
-                              setEditingEvent({ ...editingEvent, ka: null })
-                            }
-                          }}
-                          className="w-full"
-                        >
-                          Alle abwählen
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  <Label>Kühlanhänger</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {["KA 1", "KA 2", "KA 3", "KA 4", "KA 5", "K-FZ"].map((ka) => {
+                      const currentKAs = editingEvent?.ka
+                        ? editingEvent.ka
+                            .split(" & ")
+                            .map((k) => k.trim())
+                            .filter((k) => k.length > 0)
+                        : []
+
+                      const isSelected = currentKAs.some((storedKa) => {
+                        const normalizedStored = storedKa.replace(/\s+/g, " ").trim()
+                        const normalizedCurrent = ka.replace(/\s+/g, " ").trim()
+                        return (
+                          normalizedStored === normalizedCurrent ||
+                          normalizedStored === ka.replace(" ", "") || // Check "KA1" format
+                          normalizedStored.replace(" ", "") === ka.replace(" ", "")
+                        ) // Check both without spaces
+                      })
+
+                      return (
+                        <div key={ka} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={`edit-ka-${ka}`}
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (!editingEvent) return
+
+                              const currentKAs = editingEvent.ka
+                                ? editingEvent.ka
+                                    .split(" & ")
+                                    .map((k) => k.trim())
+                                    .filter((k) => k.length > 0)
+                                : []
+
+                              const cleanedKAs = currentKAs.filter((storedKa) => {
+                                const normalizedStored = storedKa.replace(/\s+/g, " ").trim()
+                                const normalizedCurrent = ka.replace(/\s+/g, " ").trim()
+                                return !(
+                                  normalizedStored === normalizedCurrent ||
+                                  normalizedStored === ka.replace(" ", "") ||
+                                  normalizedStored.replace(" ", "") === ka.replace(" ", "")
+                                )
+                              })
+
+                              let newKAs
+                              if (e.target.checked) {
+                                newKAs = [...cleanedKAs, ka]
+                              } else {
+                                newKAs = cleanedKAs
+                              }
+
+                              setEditingEvent({
+                                ...editingEvent,
+                                ka: newKAs.length > 0 ? newKAs.join(" & ") : null,
+                              })
+                            }}
+                          />
+                          <label htmlFor={`edit-ka-${ka}`} className="text-sm">
+                            {ka.replace("KA ", "KA")}
+                          </label>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
+
               <div className="space-y-2">
                 <Label>Datum</Label>
                 <div className="flex gap-2">

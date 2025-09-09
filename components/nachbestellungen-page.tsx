@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
+import { format, isSameDay } from "date-fns"
+import { de } from "date-fns/locale"
 import {
   ArrowLeft,
   Search,
@@ -19,6 +24,8 @@ import {
   MoreVertical,
   Eye,
   Trash2,
+  CalendarIcon,
+  X,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { createClient } from "@/lib/supabase-client"
@@ -88,8 +95,10 @@ export function NachbestellungenPage() {
   const [events, setEvents] = useState<Event[]>([])
   const [nachbestellungen, setNachbestellungen] = useState<Nachbestellung[]>([])
   const [searchTerm, setSearchTerm] = useState("")
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("erstellen")
+  const [calendarOpen, setCalendarOpen] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -137,7 +146,28 @@ export function NachbestellungenPage() {
     }
   }
 
-  const filteredEvents = events.filter((event) => event.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredEvents = events.filter((event) => {
+    // Name filter
+    const nameMatch = event.name.toLowerCase().includes(searchTerm.toLowerCase())
+
+    // Date filter - if no date selected, show all events
+    if (!selectedDate) return nameMatch
+
+    // If event has no date, don't show it when date filter is active
+    if (!event.date) return false
+
+    const eventStartDate = new Date(event.date + "T00:00:00")
+    const eventEndDate = event.end_date ? new Date(event.end_date + "T00:00:00") : eventStartDate
+
+    // Check if selected date falls within the event's date range (inclusive)
+    const selectedDateOnly = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
+    const startDateOnly = new Date(eventStartDate.getFullYear(), eventStartDate.getMonth(), eventStartDate.getDate())
+    const endDateOnly = new Date(eventEndDate.getFullYear(), eventEndDate.getMonth(), eventEndDate.getDate())
+
+    const dateMatch = selectedDateOnly >= startDateOnly && selectedDateOnly <= endDateOnly
+
+    return nameMatch && dateMatch
+  })
 
   const filteredNachbestellungen = nachbestellungen.filter((nachbestellung) =>
     nachbestellung.event_name.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -254,6 +284,19 @@ export function NachbestellungenPage() {
     return start
   }
 
+  const setToday = () => setSelectedDate(new Date())
+  const setYesterday = () => {
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    setSelectedDate(yesterday)
+  }
+  const clearDateFilter = () => setSelectedDate(undefined)
+
+  const handleDateSelect = (date: Date | undefined) => {
+    setSelectedDate(date)
+    setCalendarOpen(false) // Auto-close calendar after selection
+  }
+
   if (loading) {
     return (
       <div className="container mx-auto p-6">
@@ -318,15 +361,91 @@ export function NachbestellungenPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Search */}
-          <div className="relative mb-6">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Event suchen..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+          <div className="space-y-4 mb-6">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Event suchen..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Date Filter Section - only show in "erstellen" tab */}
+            {activeTab === "erstellen" && (
+              <div className="space-y-3">
+                {/* Quick Filter Buttons */}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={selectedDate && isSameDay(selectedDate, new Date()) ? "default" : "outline"}
+                    size="sm"
+                    onClick={setToday}
+                    className="flex items-center gap-1"
+                  >
+                    <Calendar className="h-4 w-4" />
+                    Heute
+                  </Button>
+                  <Button
+                    variant={
+                      selectedDate && isSameDay(selectedDate, new Date(Date.now() - 24 * 60 * 60 * 1000))
+                        ? "default"
+                        : "outline"
+                    }
+                    size="sm"
+                    onClick={setYesterday}
+                    className="flex items-center gap-1"
+                  >
+                    <Calendar className="h-4 w-4" />
+                    Gestern
+                  </Button>
+                  <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn("flex items-center gap-1", selectedDate && "border-blue-500")}
+                      >
+                        <CalendarIcon className="h-4 w-4" />
+                        {selectedDate ? format(selectedDate, "dd.MM.yyyy", { locale: de }) : "Datum wählen"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={handleDateSelect}
+                        initialFocus
+                        locale={de}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {selectedDate && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearDateFilter}
+                      className="flex items-center gap-1 text-gray-500 hover:text-gray-700"
+                    >
+                      <X className="h-4 w-4" />
+                      Filter zurücksetzen
+                    </Button>
+                  )}
+                </div>
+
+                {/* Active Filter Display */}
+                {selectedDate && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <CalendarIcon className="h-3 w-3" />
+                      Events am {format(selectedDate, "dd.MM.yyyy", { locale: de })}
+                      <X className="h-3 w-3 cursor-pointer hover:text-red-500" onClick={clearDateFilter} />
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Nachbestellung erstellen Tab */}
@@ -335,12 +454,21 @@ export function NachbestellungenPage() {
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <Calendar className="h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Keine Events gefunden</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    {selectedDate ? "Keine Events an diesem Tag" : "Keine Events gefunden"}
+                  </h3>
                   <p className="text-gray-600 text-center">
-                    {searchTerm
-                      ? "Keine Events entsprechen Ihrer Suche."
-                      : "Es wurden keine Events gefunden. Erstellen Sie zuerst ein Event in der Packliste."}
+                    {selectedDate
+                      ? `Am ${format(selectedDate, "dd.MM.yyyy", { locale: de })} finden keine Events statt.`
+                      : searchTerm
+                        ? "Keine Events entsprechen Ihrer Suche."
+                        : "Es wurden keine Events gefunden. Erstellen Sie zuerst ein Event in der Packliste."}
                   </p>
+                  {selectedDate && (
+                    <Button variant="outline" onClick={clearDateFilter} className="mt-4 bg-transparent">
+                      Alle Events anzeigen
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (
@@ -348,18 +476,18 @@ export function NachbestellungenPage() {
                 {filteredEvents.map((event) => (
                   <Card
                     key={event.id}
-                    className="hover:shadow-md transition-shadow cursor-pointer"
+                    className="hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
                     onClick={() => handleEventSelect(event)}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1 truncate">
+                          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1 truncate group-hover:text-blue-700 transition-colors">
                             {event.name}
                           </h3>
                           <p className="text-sm text-gray-600">{formatDateRange(event.date, event.end_date)}</p>
                         </div>
-                        <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0 ml-2" />
+                        <ChevronRight className="h-5 w-5 text-gray-400 flex-shrink-0 ml-2 transition-all duration-200 group-hover:text-blue-500 group-hover:translate-x-1" />
                       </div>
                     </CardContent>
                   </Card>
@@ -385,7 +513,7 @@ export function NachbestellungenPage() {
             ) : (
               <div className="space-y-3">
                 {openNachbestellungen.map((nachbestellung) => (
-                  <Card key={nachbestellung.id} className="hover:shadow-md transition-shadow">
+                  <Card key={nachbestellung.id} className="hover:bg-gray-100 transition-colors duration-200">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
@@ -417,7 +545,11 @@ export function NachbestellungenPage() {
                         {/* Actions */}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0 hover:bg-yellow-100 hover:text-yellow-700 transition-colors"
+                            >
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -477,7 +609,7 @@ export function NachbestellungenPage() {
             ) : (
               <div className="space-y-3">
                 {completedNachbestellungen.map((nachbestellung) => (
-                  <Card key={nachbestellung.id} className="hover:shadow-md transition-shadow">
+                  <Card key={nachbestellung.id} className="hover:bg-gray-100 transition-colors duration-200">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
@@ -512,7 +644,11 @@ export function NachbestellungenPage() {
                         {/* Actions for completed orders */}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0 hover:bg-green-100 hover:text-green-700 transition-colors"
+                            >
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>

@@ -10,13 +10,39 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ArrowLeft, Search, Package, ChefHat, ShoppingCart, Plus, Minus, FileText, Wrench, List } from "lucide-react"
 import { createClient } from "@/lib/supabase-client"
-import {
-  getAllFoodtruckEquipment,
-  getFoodtruckName,
-  calculateIngredientsForEvent,
-} from "@/lib/foodtruck-equipment-service"
+import { getFoodtruckEquipment } from "@/lib/foodtruck-equipment-service"
+import { getEventIngredientsFromSupabase } from "@/lib/supabase-service"
 import { createNachbestellung } from "@/lib/nachbestellung-service"
 import { toast } from "@/hooks/use-toast"
+
+const EXCLUDED_FOOD_PRODUCT_NAMES = new Set([
+  "Backhendl Box Pommes",
+  "Backhendl Box Salat",
+  "Backhendl Burger",
+  "Falafel Box",
+  "Hof Burger",
+  "Kaiserschmarrn",
+  "Käsekrainer Box",
+  "Käsekrainer Klassisch",
+  "Käsespätzle",
+  "Marilleneisknödel",
+  "Paprikahendl Box",
+  "Pommes Frites Teller",
+  "Prater Burger",
+  "Rohscheiben Box",
+  "Sacherwürstel Klassisch",
+  "Schnitzel Box",
+  "Schweinsbraten Box",
+  "Schönbrunner Burger",
+  "Vegan Wrap",
+  "Veganes Backhendl Pommes",
+  "Veganes Backhendl Salat",
+  "Veggie Box",
+  "Veggie Burger",
+  "Vienna Hotdog",
+  "Warmer Schokokuchen",
+  "Zwiebelrostbraten Box",
+])
 
 interface Event {
   id: string
@@ -50,7 +76,7 @@ interface Ingredient {
 interface Equipment {
   id: string
   name: string
-  foodtruck: string
+  foodtruck: string[]
   unit: string
   packagingUnit: string
   reorderQuantity: number
@@ -60,12 +86,10 @@ interface NachbestellungDetailPageProps {
   eventId: string
 }
 
-// Helper function to determine packaging unit based on ingredient/product name and unit
 const getPackagingUnit = (name: string, unit: string): string => {
   const nameLower = name.toLowerCase()
   const unitLower = unit.toLowerCase()
 
-  // Mapping based on common ingredient types
   if (nameLower.includes("öl") || nameLower.includes("essig") || nameLower.includes("sauce")) {
     return "Flasche"
   }
@@ -91,7 +115,6 @@ const getPackagingUnit = (name: string, unit: string): string => {
     return "Dose"
   }
 
-  // Default based on unit type
   if (unitLower.includes("ml") || unitLower.includes("liter")) {
     return "Flasche"
   }
@@ -100,6 +123,13 @@ const getPackagingUnit = (name: string, unit: string): string => {
   }
 
   return "Stück"
+}
+
+const formatFoodtrucks = (foodtrucks: string[]): string => {
+  if (!foodtrucks || foodtrucks.length === 0) return "Kein Foodtruck"
+  if (foodtrucks.length === 1) return foodtrucks[0]
+  if (foodtrucks.length === 2) return foodtrucks.join(" & ")
+  return `${foodtrucks.slice(0, -1).join(", ")} & ${foodtrucks[foodtrucks.length - 1]}`
 }
 
 export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPageProps) {
@@ -127,7 +157,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
       console.log("🚀 === STARTING EVENT DATA LOAD ===")
       console.log("📅 Event ID:", eventId)
 
-      // Get event details
       const { data: eventData, error: eventError } = await supabase
         .from("events")
         .select("*")
@@ -147,31 +176,35 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
       console.log("✅ Event data loaded:", eventData)
       setEvent(eventData)
 
-      // Load event products - using the correct column names
       console.log("🍽️ === LOADING EVENT PRODUCTS ===")
       const { data: eventProductsData, error: eventProductsError } = await supabase
         .from("event_products")
         .select("*")
         .eq("event_id", Number.parseInt(eventId))
 
-      console.log("📦 Raw event_products data:", eventProductsData)
-      console.log("📦 Event products count:", eventProductsData?.length || 0)
-
       if (eventProductsError) {
         console.error("❌ Error loading event products:", eventProductsError)
       }
 
-      // Transform event products to the expected format
+      console.log("📦 Raw event_products data:", eventProductsData)
+      console.log("📦 Event products count before filtering:", eventProductsData?.length || 0)
+
       const transformedProducts: Product[] = []
 
       if (eventProductsData && eventProductsData.length > 0) {
         console.log("🔄 Processing event products...")
         eventProductsData.forEach((eventProduct, index) => {
+          const productName = eventProduct.product_name || "Unknown Product"
+
+          if (EXCLUDED_FOOD_PRODUCT_NAMES.has(productName)) {
+            console.log(`🚫 SKIPPING excluded food product:`, productName)
+            return
+          }
+
           console.log(`🔍 Processing event product ${index + 1}:`, eventProduct)
 
-          const productName = eventProduct.product_name || "Unknown Product"
           const unit = eventProduct.unit || "Stück"
-          const category = "Event Product" // We don't have category info from event_products
+          const category = eventProduct.category || "Produkt"
 
           const transformedProduct = {
             id: eventProduct.id.toString(),
@@ -190,34 +223,49 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
         console.log("⚠️ No event products found for event ID:", eventId)
       }
 
-      console.log("📦 Final transformed products:", transformedProducts)
+      console.log("📦 Final transformed products after filtering:", transformedProducts)
+      console.log("📦 Products filtered out:", (eventProductsData?.length || 0) - transformedProducts.length)
       setProducts(transformedProducts)
 
-      // Load ingredients using the new service
       console.log("🥬 === LOADING INGREDIENTS ===")
       try {
-        const calculatedIngredients = await calculateIngredientsForEvent(eventId)
+        const calculatedIngredientsResult = await getEventIngredientsFromSupabase(Number.parseInt(eventId))
+        console.log("🎯 Raw calculated ingredients result:", calculatedIngredientsResult)
 
-        // Transform EventIngredient to Ingredient format
-        const transformedIngredients: Ingredient[] = calculatedIngredients.map((eventIngredient) => ({
-          id: eventIngredient.ingredient_id,
-          name: eventIngredient.ingredient_name,
-          quantity: eventIngredient.total_amount,
-          unit: eventIngredient.unit,
-          category: "Zutat",
-          packagingUnit: getPackagingUnit(eventIngredient.ingredient_name, eventIngredient.unit),
-          used_in_products: eventIngredient.used_in_products,
-          reorderQuantity: 0,
-        }))
+        if (calculatedIngredientsResult && calculatedIngredientsResult.length > 0) {
+          console.log("🔍 Ingredients array length:", calculatedIngredientsResult.length)
+          console.log("🔍 First few ingredients:", calculatedIngredientsResult.slice(0, 3))
 
-        console.log("🎯 Final transformed ingredients:", transformedIngredients)
-        setIngredients(transformedIngredients)
+          const transformedIngredients: Ingredient[] = calculatedIngredientsResult.map((eventIngredient: any) => {
+            console.log("🔄 Transforming ingredient:", eventIngredient)
+            return {
+              id: eventIngredient.ingredient_id?.toString() || Math.random().toString(),
+              name: eventIngredient.ingredient_name || "Unknown Ingredient",
+              quantity: eventIngredient.quantity_needed || 0,
+              unit: eventIngredient.ingredient_unit || "Stück",
+              category: "Zutat",
+              packagingUnit: getPackagingUnit(
+                eventIngredient.ingredient_name || "",
+                eventIngredient.ingredient_unit || "",
+              ),
+              used_in_products: eventIngredient.used_in_products?.map((p: any) => p.product_name) || [],
+              reorderQuantity: 0,
+            }
+          })
+
+          console.log("🎯 Final transformed ingredients count:", transformedIngredients.length)
+          console.log("🎯 Final transformed ingredients:", transformedIngredients)
+          setIngredients(transformedIngredients)
+        } else {
+          console.log("⚠️ No ingredients calculated or empty array")
+          console.log("⚠️ calculatedIngredientsResult:", calculatedIngredientsResult)
+          setIngredients([])
+        }
       } catch (ingredientError) {
         console.error("❌ Error loading ingredients:", ingredientError)
         setIngredients([])
       }
 
-      // Load all products from database for "Alle Produkte" tab
       console.log("📚 Loading all products...")
       const { data: allProductsData, error: allProductsError } = await supabase
         .from("products")
@@ -225,12 +273,15 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           id,
           name,
           unit,
+          category_id,
           categories(name)
         `)
         .order("name")
 
       if (!allProductsError && allProductsData) {
-        const transformedAllProducts: Product[] = allProductsData.map((product) => ({
+        const filteredData = allProductsData.filter((product) => product.category_id !== 15)
+
+        const transformedAllProducts: Product[] = filteredData.map((product) => ({
           id: product.id.toString(),
           name: product.name,
           category: product.categories?.name || "Uncategorized",
@@ -240,21 +291,21 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           reorderQuantity: 0,
         }))
         setAllProducts(transformedAllProducts)
-        console.log("✅ All products loaded:", transformedAllProducts.length)
+        console.log("✅ All products loaded (excluding category_id 15):", transformedAllProducts.length)
+        console.log("🔍 Products with category_id 15 filtered out:", allProductsData.length - filteredData.length)
       }
 
-      // Load foodtruck equipment from new table
       console.log("🚛 Loading foodtruck equipment...")
       try {
-        const equipmentData = await getAllFoodtruckEquipment()
+        const equipmentData = await getFoodtruckEquipment()
         console.log("✅ Loaded foodtruck equipment:", equipmentData)
 
         const transformedEquipment: Equipment[] = equipmentData.map((equipment) => ({
           id: equipment.id.toString(),
           name: equipment.name,
-          foodtruck: getFoodtruckName(equipment.foodtruck),
+          foodtruck: equipment.foodtruck || [], // Fixed: use equipment.foodtruck instead of equipment.foodtrucks
           unit: equipment.unit,
-          packagingUnit: equipment.unit,
+          packagingUnit: "Stück",
           reorderQuantity: 0,
         }))
         setEquipmentProducts(transformedEquipment)
@@ -298,7 +349,7 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
   const filteredEquipmentProducts = equipmentProducts.filter(
     (equipment) =>
       equipment.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      equipment.foodtruck.toLowerCase().includes(searchTerm.toLowerCase()),
+      equipment.foodtruck.some((truck) => truck.toLowerCase().includes(searchTerm.toLowerCase())),
   )
 
   const handleProductQuantityChange = (productId: string, value: number) => {
@@ -399,7 +450,7 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           quantity: e.reorderQuantity,
           unit: e.unit,
           packagingUnit: e.packagingUnit,
-          category: e.foodtruck,
+          category: formatFoodtrucks(e.foodtruck),
         })),
         notes: notes.trim() || undefined,
       }
@@ -487,7 +538,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
   return (
     <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
       <div className="border border-gray-200 rounded-lg p-4 sm:p-6">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-6 sm:mb-8">
           <Button
             variant="outline"
@@ -507,7 +557,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           </div>
         </div>
 
-        {/* Search */}
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
@@ -518,52 +567,123 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           />
         </div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
-            <TabsTrigger value="products" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-              <ChefHat className="h-4 w-4" />
-              <span className="hidden sm:inline">Produkte ({filteredProducts.length})</span>
-              <span className="sm:hidden">Produkte ({filteredProducts.length})</span>
-              {selectedProductsCount > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {selectedProductsCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="ingredients" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-              <ShoppingCart className="h-4 w-4" />
-              <span className="hidden sm:inline">Zutaten ({filteredIngredients.length})</span>
-              <span className="sm:hidden">Zutaten ({filteredIngredients.length})</span>
-              {selectedIngredientsCount > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {selectedIngredientsCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="equipment" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-              <Wrench className="h-4 w-4" />
-              <span className="hidden sm:inline">Equipment ({filteredEquipmentProducts.length})</span>
-              <span className="sm:hidden">Equipment ({filteredEquipmentProducts.length})</span>
-              {selectedEquipmentCount > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {selectedEquipmentCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="all-products" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-              <List className="h-4 w-4" />
-              <span className="hidden sm:inline">Alle Produkte ({filteredAllProducts.length})</span>
-              <span className="sm:hidden">Alle ({filteredAllProducts.length})</span>
-              {selectedAllProductsCount > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {selectedAllProductsCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <FileText className="h-4 w-4 text-gray-600" />
+            <label htmlFor="notes" className="text-sm font-medium text-gray-700">
+              Notizen (optional)
+            </label>
+          </div>
+          <Textarea
+            id="notes"
+            placeholder="Zusätzliche Informationen zur Nachbestellung..."
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="min-h-[80px] resize-none"
+            maxLength={500}
+          />
+          <p className="text-xs text-gray-500 mt-1">{notes.length}/500 Zeichen</p>
+        </div>
 
-          {/* Products Tab */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <div className="mb-6 overflow-x-auto">
+            <TabsList className="grid grid-cols-4 w-full min-w-max sm:min-w-0">
+              <TabsTrigger
+                value="products"
+                className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 whitespace-nowrap"
+              >
+                <ChefHat className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">Produkte ({filteredProducts.length})</span>
+                {selectedProductsCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs flex-shrink-0">
+                    {selectedProductsCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="ingredients"
+                className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 whitespace-nowrap"
+              >
+                <ShoppingCart className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">Zutaten ({filteredIngredients.length})</span>
+                {selectedIngredientsCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs flex-shrink-0">
+                    {selectedIngredientsCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="equipment"
+                className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 whitespace-nowrap"
+              >
+                <Wrench className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">Foodtruck Geschirr ({filteredEquipmentProducts.length})</span>
+                {selectedEquipmentCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs flex-shrink-0">
+                    {selectedEquipmentCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="all-products"
+                className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 whitespace-nowrap"
+              >
+                <List className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">Alle ({filteredAllProducts.length})</span>
+                {selectedAllProductsCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs flex-shrink-0">
+                    {selectedAllProductsCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          {totalSelectedCount > 0 && (
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm sm:text-base">
+                    {totalSelectedCount} Artikel ausgewählt
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-600">
+                    {selectedProductsCount} Event-Produkte, {selectedIngredientsCount} Zutaten, {selectedEquipmentCount}{" "}
+                    Foodtruck Geschirr, {selectedAllProductsCount} Alle Produkte
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setProducts(products.map((p) => ({ ...p, reorderQuantity: 0 })))
+                      setIngredients(ingredients.map((i) => ({ ...i, reorderQuantity: 0 })))
+                      setAllProducts(allProducts.map((p) => ({ ...p, reorderQuantity: 0 })))
+                      setEquipmentProducts(equipmentProducts.map((e) => ({ ...e, reorderQuantity: 0 })))
+                      setNotes("")
+                    }}
+                    className="text-xs sm:text-sm"
+                    disabled={isCreating}
+                  >
+                    Auswahl zurücksetzen
+                  </Button>
+                  <Button onClick={handleCreateReorder} disabled={isCreating} className="text-xs sm:text-sm">
+                    {isCreating ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Erstelle...
+                      </>
+                    ) : (
+                      <>
+                        <Package className="h-4 w-4 mr-2" />
+                        Nachbestellung erstellen
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <TabsContent value="products" className="space-y-4">
             {filteredProducts.length === 0 ? (
               <Card>
@@ -578,25 +698,31 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
                 {filteredProducts.map((product) => (
-                  <Card key={product.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">{product.name}</h3>
+                  <Card
+                    key={product.id}
+                    className={`hover:shadow-sm transition-all ${
+                      product.reorderQuantity > 0
+                        ? "bg-blue-100 border-blue-300 shadow-sm"
+                        : "bg-blue-50 border-blue-200"
+                    }`}
+                  >
+                    <CardContent className="p-2 sm:p-3">
+                      <div className="space-y-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900 text-xs sm:text-sm truncate">{product.name}</h3>
                           <p className="text-xs text-gray-500">
-                            {product.category} • {product.quantity} {product.unit} im Event
+                            {product.quantity} {product.unit} im Event
                           </p>
                         </div>
 
-                        {/* Quantity selector */}
-                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
-                          <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="flex items-center justify-center">
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 const newValue = Math.max(0, product.reorderQuantity - 1)
                                 handleProductQuantityChange(product.id, newValue)
@@ -613,12 +739,17 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                                 const value = Number.parseInt(e.target.value) || 0
                                 handleProductQuantityChange(product.id, Math.max(0, value))
                               }}
-                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onFocus={(e) => {
+                                if (e.target.value === "0") {
+                                  e.target.value = ""
+                                }
+                              }}
+                              className="h-8 w-14 sm:h-7 sm:w-12 text-center text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 handleProductQuantityChange(product.id, product.reorderQuantity + 1)
                               }}
@@ -626,9 +757,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                               <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
-                            {product.packagingUnit}
-                          </span>
                         </div>
                       </div>
                     </CardContent>
@@ -638,7 +766,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
             )}
           </TabsContent>
 
-          {/* Ingredients Tab */}
           <TabsContent value="ingredients" className="space-y-4">
             {filteredIngredients.length === 0 ? (
               <Card>
@@ -653,28 +780,28 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
                 {filteredIngredients.map((ingredient) => (
-                  <Card key={ingredient.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">
-                            {ingredient.name}
-                          </h3>
-                          <p className="text-xs text-gray-500 truncate">
-                            Benötigt: {ingredient.quantity} {ingredient.unit} • Verwendet in:{" "}
-                            {ingredient.used_in_products.join(", ")}
-                          </p>
+                  <Card
+                    key={ingredient.id}
+                    className={`hover:shadow-sm transition-all ${
+                      ingredient.reorderQuantity > 0
+                        ? "bg-green-100 border-green-300 shadow-sm"
+                        : "bg-green-50 border-green-200"
+                    }`}
+                  >
+                    <CardContent className="p-2 sm:p-3">
+                      <div className="space-y-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900 text-xs sm:text-sm truncate">{ingredient.name}</h3>
                         </div>
 
-                        {/* Quantity selector */}
-                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
-                          <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="flex items-center justify-center">
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 const newValue = Math.max(0, ingredient.reorderQuantity - 1)
                                 handleIngredientQuantityChange(ingredient.id, newValue)
@@ -691,12 +818,17 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                                 const value = Number.parseInt(e.target.value) || 0
                                 handleIngredientQuantityChange(ingredient.id, Math.max(0, value))
                               }}
-                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onFocus={(e) => {
+                                if (e.target.value === "0") {
+                                  e.target.value = ""
+                                }
+                              }}
+                              className="h-8 w-14 sm:h-7 sm:w-12 text-center text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 handleIngredientQuantityChange(ingredient.id, ingredient.reorderQuantity + 1)
                               }}
@@ -704,9 +836,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                               <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
-                            {ingredient.packagingUnit}
-                          </span>
                         </div>
                       </div>
                     </CardContent>
@@ -716,38 +845,49 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
             )}
           </TabsContent>
 
-          {/* Equipment Tab */}
           <TabsContent value="equipment" className="space-y-4">
             {filteredEquipmentProducts.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <Wrench className="h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Kein Equipment gefunden</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Kein Foodtruck Geschirr gefunden</h3>
                   <p className="text-gray-600 text-center">
-                    {searchTerm ? "Kein Equipment entspricht Ihrer Suche." : "Kein Equipment verfügbar."}
+                    {searchTerm
+                      ? "Kein Foodtruck Geschirr entspricht Ihrer Suche."
+                      : "Kein Foodtruck Geschirr verfügbar."}
                   </p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
                 {filteredEquipmentProducts.map((equipment) => (
-                  <Card key={equipment.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">
-                            {equipment.name}
-                          </h3>
-                          <p className="text-xs text-gray-500">{equipment.foodtruck}</p>
+                  <Card
+                    key={equipment.id}
+                    className={`hover:shadow-sm transition-all ${
+                      equipment.reorderQuantity > 0
+                        ? "bg-orange-100 border-orange-300 shadow-sm"
+                        : "bg-orange-50 border-orange-200"
+                    }`}
+                  >
+                    <CardContent className="p-2 sm:p-3">
+                      <div className="space-y-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900 text-xs sm:text-sm truncate">{equipment.name}</h3>
+                          {equipment.foodtruck && equipment.foodtruck.length > 0 ? (
+                            <p className="text-xs text-gray-500 truncate">
+                              {equipment.foodtruck.map((truck) => truck.toUpperCase()).join(", ")}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-gray-500">Kein Foodtruck</p>
+                          )}
                         </div>
 
-                        {/* Quantity selector */}
-                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
-                          <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="flex items-center justify-center">
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 const newValue = Math.max(0, equipment.reorderQuantity - 1)
                                 handleEquipmentQuantityChange(equipment.id, newValue)
@@ -764,12 +904,17 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                                 const value = Number.parseInt(e.target.value) || 0
                                 handleEquipmentQuantityChange(equipment.id, Math.max(0, value))
                               }}
-                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onFocus={(e) => {
+                                if (e.target.value === "0") {
+                                  e.target.value = ""
+                                }
+                              }}
+                              className="h-8 w-14 sm:h-7 sm:w-12 text-center text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 handleEquipmentQuantityChange(equipment.id, equipment.reorderQuantity + 1)
                               }}
@@ -777,9 +922,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                               <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
-                            {equipment.packagingUnit}
-                          </span>
                         </div>
                       </div>
                     </CardContent>
@@ -789,7 +931,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
             )}
           </TabsContent>
 
-          {/* All Products Tab */}
           <TabsContent value="all-products" className="space-y-4">
             {filteredAllProducts.length === 0 ? (
               <Card>
@@ -802,23 +943,29 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
                 {filteredAllProducts.map((product) => (
-                  <Card key={product.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="p-3 sm:p-4">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">{product.name}</h3>
+                  <Card
+                    key={product.id}
+                    className={`hover:shadow-sm transition-all ${
+                      product.reorderQuantity > 0
+                        ? "bg-purple-100 border-purple-300 shadow-sm"
+                        : "bg-purple-50 border-purple-200"
+                    }`}
+                  >
+                    <CardContent className="p-2 sm:p-3">
+                      <div className="space-y-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900 text-xs sm:text-sm truncate">{product.name}</h3>
                           <p className="text-xs text-gray-500">{product.category}</p>
                         </div>
 
-                        {/* Quantity selector */}
-                        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
-                          <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="flex items-center justify-center">
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 const newValue = Math.max(0, product.reorderQuantity - 1)
                                 handleAllProductQuantityChange(product.id, newValue)
@@ -835,12 +982,17 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                                 const value = Number.parseInt(e.target.value) || 0
                                 handleAllProductQuantityChange(product.id, Math.max(0, value))
                               }}
-                              className="h-8 w-14 sm:w-16 text-center text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onFocus={(e) => {
+                                if (e.target.value === "0") {
+                                  e.target.value = ""
+                                }
+                              }}
+                              className="h-8 w-14 sm:h-7 sm:w-12 text-center text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8 rounded-md bg-transparent"
+                              className="h-8 w-8 sm:h-7 sm:w-7 rounded-md bg-transparent"
                               onClick={() => {
                                 handleAllProductQuantityChange(product.id, product.reorderQuantity + 1)
                               }}
@@ -848,9 +1000,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
                               <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                          <span className="text-xs sm:text-sm text-gray-600 min-w-0 truncate ml-1">
-                            {product.packagingUnit}
-                          </span>
                         </div>
                       </div>
                     </CardContent>
@@ -860,73 +1009,6 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
             )}
           </TabsContent>
         </Tabs>
-
-        {/* Notes Section */}
-        {totalSelectedCount > 0 && (
-          <div className="mt-6">
-            <div className="flex items-center gap-2 mb-3">
-              <FileText className="h-4 w-4 text-gray-600" />
-              <label htmlFor="notes" className="text-sm font-medium text-gray-700">
-                Notizen (optional)
-              </label>
-            </div>
-            <Textarea
-              id="notes"
-              placeholder="Zusätzliche Informationen zur Nachbestellung..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="min-h-[80px] resize-none"
-              maxLength={500}
-            />
-            <p className="text-xs text-gray-500 mt-1">{notes.length}/500 Zeichen</p>
-          </div>
-        )}
-
-        {/* Action Bar */}
-        {totalSelectedCount > 0 && (
-          <div className="mt-6 sm:mt-8 p-4 bg-gray-50 rounded-lg border">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <p className="font-semibold text-gray-900 text-sm sm:text-base">
-                  {totalSelectedCount} Artikel ausgewählt
-                </p>
-                <p className="text-xs sm:text-sm text-gray-600">
-                  {selectedProductsCount} Event-Produkte, {selectedIngredientsCount} Zutaten, {selectedEquipmentCount}{" "}
-                  Equipment, {selectedAllProductsCount} Alle Produkte
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setProducts(products.map((p) => ({ ...p, reorderQuantity: 0 })))
-                    setIngredients(ingredients.map((i) => ({ ...i, reorderQuantity: 0 })))
-                    setAllProducts(allProducts.map((p) => ({ ...p, reorderQuantity: 0 })))
-                    setEquipmentProducts(equipmentProducts.map((e) => ({ ...e, reorderQuantity: 0 })))
-                    setNotes("")
-                  }}
-                  className="text-xs sm:text-sm"
-                  disabled={isCreating}
-                >
-                  Auswahl zurücksetzen
-                </Button>
-                <Button onClick={handleCreateReorder} disabled={isCreating} className="text-xs sm:text-sm">
-                  {isCreating ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Erstelle...
-                    </>
-                  ) : (
-                    <>
-                      <Package className="h-4 w-4 mr-2" />
-                      Nachbestellung erstellen
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
