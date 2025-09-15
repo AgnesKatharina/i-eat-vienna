@@ -8,7 +8,22 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, Search, Package, ChefHat, ShoppingCart, Plus, Minus, FileText, Wrench, List } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  ArrowLeft,
+  Search,
+  Package,
+  ChefHat,
+  ShoppingCart,
+  Plus,
+  Minus,
+  FileText,
+  Wrench,
+  List,
+  CheckCircle,
+  CheckSquare,
+  X,
+} from "lucide-react"
 import { createClient } from "@/lib/supabase-client"
 import { getFoodtruckEquipment } from "@/lib/foodtruck-equipment-service"
 import { getEventIngredientsFromSupabase } from "@/lib/supabase-service"
@@ -132,7 +147,170 @@ const formatFoodtrucks = (foodtrucks: string[]): string => {
   return `${foodtrucks.slice(0, -1).join(", ")} & ${foodtrucks[foodtrucks.length - 1]}`
 }
 
-export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPageProps) {
+const NotesFieldWithModeToggle = ({
+  value,
+  onChange,
+  placeholder = "Zusätzliche Informationen zur Nachbestellung...",
+  maxLength = 500,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  maxLength?: number
+}) => {
+  const [mode, setMode] = useState<"text" | "checkbox">("text")
+  const [checkboxItems, setCheckboxItems] = useState<Array<{ id: string; text: string; checked: boolean }>>([])
+
+  // Convert text to checkbox items when switching to checkbox mode
+  useEffect(() => {
+    if (mode === "checkbox" && value) {
+      const lines = value.split("\n").filter((line) => line.trim())
+      const items = lines.map((line, index) => ({
+        id: `item-${index}`,
+        text: line.replace(/^\s*\[([x\s]?)\]\s*/, ""), // Remove existing checkbox syntax
+        checked: line.match(/^\s*\[x\]\s*/) !== null,
+      }))
+      setCheckboxItems(items)
+    }
+  }, [mode, value])
+
+  // Convert checkbox items back to text when switching to text mode
+  const convertCheckboxesToText = () => {
+    const text = checkboxItems.map((item) => `[${item.checked ? "x" : " "}] ${item.text}`).join("\n")
+    onChange(text)
+  }
+
+  const handleModeChange = (newMode: "text" | "checkbox") => {
+    if (mode === "checkbox" && newMode === "text") {
+      convertCheckboxesToText()
+    }
+    setMode(newMode)
+  }
+
+  const addCheckboxItem = () => {
+    const newItem = {
+      id: `item-${Date.now()}`,
+      text: "",
+      checked: false,
+    }
+    setCheckboxItems([...checkboxItems, newItem])
+  }
+
+  const updateCheckboxItem = (id: string, updates: Partial<{ text: string; checked: boolean }>) => {
+    setCheckboxItems((items) => items.map((item) => (item.id === id ? { ...item, ...updates } : item)))
+  }
+
+  const removeCheckboxItem = (id: string) => {
+    setCheckboxItems((items) => items.filter((item) => item.id !== id))
+  }
+
+  // Update the text value when checkbox items change
+  useEffect(() => {
+    if (mode === "checkbox") {
+      const text = checkboxItems
+        .filter((item) => item.text.trim()) // Only include items with text
+        .map((item) => `[${item.checked ? "x" : " "}] ${item.text}`)
+        .join("\n")
+      onChange(text)
+    }
+  }, [checkboxItems, mode, onChange])
+
+  return (
+    <div className="space-y-3">
+      {/* Mode Toggle */}
+      <div className="flex items-center space-x-2">
+        <Button
+          type="button"
+          variant={mode === "text" ? "default" : "outline"}
+          size="sm"
+          onClick={() => handleModeChange("text")}
+          className="h-8"
+        >
+          <FileText className="h-3 w-3 mr-1" />
+          Text
+        </Button>
+        <Button
+          type="button"
+          variant={mode === "checkbox" ? "default" : "outline"}
+          size="sm"
+          onClick={() => handleModeChange("checkbox")}
+          className="h-8"
+        >
+          <CheckSquare className="h-3 w-3 mr-1" />
+          Checkliste
+        </Button>
+      </div>
+
+      {/* Text Mode */}
+      {mode === "text" && (
+        <Textarea
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="min-h-[80px] resize-none"
+          maxLength={maxLength}
+        />
+      )}
+
+      {/* Checkbox Mode */}
+      {mode === "checkbox" && (
+        <div className="border rounded-lg p-3 bg-gray-50 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium text-gray-700">Checkliste:</h4>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addCheckboxItem}
+              className="h-7 text-xs bg-transparent"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Hinzufügen
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            {checkboxItems.map((item) => (
+              <div key={item.id} className="flex items-center space-x-2 group">
+                <Checkbox
+                  checked={item.checked}
+                  onCheckedChange={(checked) => updateCheckboxItem(item.id, { checked: checked as boolean })}
+                />
+                <Input
+                  value={item.text}
+                  onChange={(e) => updateCheckboxItem(item.id, { text: e.target.value })}
+                  placeholder="Checkbox-Element eingeben..."
+                  className={`flex-1 h-8 text-sm ${item.checked ? "line-through text-gray-500" : ""}`}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeCheckboxItem(item.id)}
+                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+
+            {checkboxItems.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4">
+                Klicken Sie auf "Hinzufügen", um Checkbox-Elemente zu erstellen
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-500">
+        {value.length}/{maxLength} Zeichen
+      </p>
+    </div>
+  )
+}
+
+export default function NachbestellungDetailPage({ eventId }: { eventId: string }) {
   const router = useRouter()
   const [event, setEvent] = useState<Event | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -144,6 +322,8 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
   const [isCreating, setIsCreating] = useState(false)
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [equipmentProducts, setEquipmentProducts] = useState<Equipment[]>([])
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [successData, setSuccessData] = useState<{ totalItems: number; eventName: string } | null>(null)
 
   useEffect(() => {
     loadEventData()
@@ -458,12 +638,18 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
       const result = await createNachbestellung(nachbestellungData, user?.id)
 
       if (result) {
-        toast({
-          title: "Nachbestellung erstellt",
-          description: `${totalSelected} Artikel für Nachbestellung gespeichert`,
+        setSuccessData({
+          totalItems: totalSelected,
+          eventName: event.name,
         })
+        setShowSuccessModal(true)
 
-        router.push("/app/nachbestellungen")
+        // Reset form after successful creation
+        setProducts(products.map((p) => ({ ...p, reorderQuantity: 0 })))
+        setIngredients(ingredients.map((i) => ({ ...i, reorderQuantity: 0 })))
+        setAllProducts(allProducts.map((p) => ({ ...p, reorderQuantity: 0 })))
+        setEquipmentProducts(equipmentProducts.map((e) => ({ ...e, reorderQuantity: 0 })))
+        setNotes("")
       } else {
         toast({
           title: "Fehler",
@@ -537,6 +723,49 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
 
   return (
     <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform animate-in zoom-in-95 duration-300">
+            <div className="p-8 text-center">
+              <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-6">
+                <CheckCircle className="w-8 h-8 text-green-600" />
+              </div>
+
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">Nachbestellung erfolgreich erstellt!</h2>
+
+              {successData && (
+                <div className="space-y-2 mb-8">
+                  <p className="text-gray-600">
+                    <span className="font-semibold text-green-600">{successData.totalItems} Artikel</span> für
+                  </p>
+                  <p className="text-gray-800 font-medium">{successData.eventName}</p>
+                  <p className="text-gray-600">wurden zur Nachbestellung hinzugefügt.</p>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSuccessModal(false)}
+                  className="flex-1 border-gray-300 hover:bg-gray-50"
+                >
+                  Weitere Nachbestellung erstellen
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowSuccessModal(false)
+                    router.push("/app/nachbestellungen")
+                  }}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                >
+                  Zur Übersicht
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="border border-gray-200 rounded-lg p-4 sm:p-6">
         <div className="flex items-center gap-4 mb-6 sm:mb-8">
           <Button
@@ -567,23 +796,18 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
           />
         </div>
 
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <FileText className="h-4 w-4 text-gray-600" />
-            <label htmlFor="notes" className="text-sm font-medium text-gray-700">
-              Notizen (optional)
-            </label>
-          </div>
-          <Textarea
-            id="notes"
-            placeholder="Zusätzliche Informationen zur Nachbestellung..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="min-h-[80px] resize-none"
-            maxLength={500}
-          />
-          <p className="text-xs text-gray-500 mt-1">{notes.length}/500 Zeichen</p>
+        <div className="flex items-center space-x-2 mb-2">
+          <FileText className="h-4 w-4 text-gray-600" />
+          <label htmlFor="notes" className="text-sm font-medium text-gray-700">
+            Notizen (optional)
+          </label>
         </div>
+        <NotesFieldWithModeToggle
+          value={notes}
+          onChange={setNotes}
+          placeholder="Zusätzliche Informationen zur Nachbestellung..."
+          maxLength={500}
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="mb-6 overflow-x-auto">
@@ -1013,3 +1237,5 @@ export function NachbestellungDetailPage({ eventId }: NachbestellungDetailPagePr
     </div>
   )
 }
+
+export { NachbestellungDetailPage }

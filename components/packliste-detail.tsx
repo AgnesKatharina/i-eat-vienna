@@ -189,6 +189,9 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     ka: [] as string[],
   })
 
+  const [notesMode, setNotesMode] = useState<"text" | "checklist">("text")
+  const [checklistItems, setChecklistItems] = useState<Array<{ id: string; text: string; checked: boolean }>>([])
+
   // Memoized filtered products for better performance
   const filteredProducts = useMemo(() => {
     let filtered = products.filter((product) => product.category?.name === activeCategory)
@@ -1101,7 +1104,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           color: #666;
         }
         .special-infos-section {
-          margin-top: 30px;
           margin-bottom: 30px;
         }
         .special-infos-title {
@@ -1142,10 +1144,23 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
     </head>
     <body>
       <div class="header">
-        <div class="title">Packliste</div>
+        <div class="title">Packliste: ${eventDetails.name}</div>
         <div class="event-info">${headerInfo}</div>
       </div>
+  `
 
+    if (eventDetails.notes && eventDetails.notes.trim() !== "") {
+      html += `
+        <div class="special-infos-section">
+          <div class="special-infos-title">Special Infos</div>
+          <div class="special-infos-box">
+            <div class="special-infos-content">${eventDetails.notes.replace(/\n/g, "<br>")}</div>
+          </div>
+        </div>
+      `
+    }
+
+    html += `
       <div class="products-section">
         <div class="category-grid">
   `
@@ -1263,18 +1278,6 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
       html += `
       </div>
     `
-    }
-
-    // Add Special Infos section if notes exist
-    if (eventDetails.notes && eventDetails.notes.trim() !== "") {
-      html += `
-        <div class="special-infos-section">
-          <div class="special-infos-title">Special Infos</div>
-          <div class="special-infos-box">
-            <div class="special-infos-content">${eventDetails.notes.replace(/\n/g, "<br>")}</div>
-          </div>
-        </div>
-      `
     }
 
     // Add signature box with updated footer format
@@ -1674,35 +1677,117 @@ export function PacklisteDetail({ eventId }: PacklisteDetailProps) {
           </TabsList>
         </Tabs>
 
-        {/* Shared Notes Section - Always Visible */}
         <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                />
-              </svg>
-              <span className="text-sm font-medium text-gray-700">Notizen (optional)</span>
-            </div>
-            <span className="text-xs text-gray-500">{notes.length}/1000 Zeichen</span>
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+              />
+            </svg>
+            <span className="text-sm font-medium text-gray-700">Notizen & Checkliste</span>
           </div>
 
-          <div className="space-y-2">
-            <Textarea
-              value={notes}
-              onChange={(e) => {
-                if (e.target.value.length <= 1000) {
-                  setNotes(e.target.value)
-                }
-              }}
-              placeholder="Zusätzliche Informationen zur Packliste..."
-              className="w-full p-3 border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              rows={6}
-            />
+          <div className="flex gap-4">
+            {/* Regular Notes Section - 2/3 width */}
+            <div className="flex-1" style={{ flexBasis: "66.67%" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-gray-600">Notizen (optional)</span>
+                <span className="text-xs text-gray-500">
+                  {
+                    notes
+                      .split("\n")
+                      .filter((line) => !line.startsWith("CHECKBOX:"))
+                      .join("\n").length
+                  }
+                  /1000 Zeichen
+                </span>
+              </div>
+              <Textarea
+                value={notes
+                  .split("\n")
+                  .filter((line) => !line.startsWith("CHECKBOX:"))
+                  .join("\n")}
+                onChange={(e) => {
+                  if (e.target.value.length <= 1000) {
+                    const regularNotes = e.target.value
+                    const checkboxNotes = checklistItems.map((item) => `CHECKBOX:${item.text}`).join("\n")
+                    const combinedNotes = [regularNotes, checkboxNotes].filter(Boolean).join("\n")
+                    setNotes(combinedNotes)
+                  }
+                }}
+                placeholder="Zusätzliche Informationen zur Packliste..."
+                className="w-full p-3 border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                rows={6}
+              />
+            </div>
+
+            {/* Checkboxes Section - 1/3 width */}
+            <div className="flex-1" style={{ flexBasis: "33.33%" }}>
+              <div className="mb-2">
+                <span className="text-xs font-medium text-gray-600">Checkliste</span>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {checklistItems.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 p-2 border rounded-md">
+                    <div className="w-4 h-4 border border-gray-400 rounded-sm flex-shrink-0"></div>
+                    <input
+                      type="text"
+                      value={item.text}
+                      onChange={(e) => {
+                        const updatedItems = checklistItems.map((i) =>
+                          i.id === item.id ? { ...i, text: e.target.value } : i,
+                        )
+                        setChecklistItems(updatedItems)
+                        const regularNotes = notes
+                          .split("\n")
+                          .filter((line) => !line.startsWith("CHECKBOX:"))
+                          .join("\n")
+                        const checkboxNotes = updatedItems.map((i) => `CHECKBOX:${i.text}`).join("\n")
+                        const combinedNotes = [regularNotes, checkboxNotes].filter(Boolean).join("\n")
+                        setNotes(combinedNotes)
+                      }}
+                      className="flex-1 p-1 border-none outline-none text-xs"
+                      placeholder="Element..."
+                    />
+                    <button
+                      onClick={() => {
+                        const updatedItems = checklistItems.filter((i) => i.id !== item.id)
+                        setChecklistItems(updatedItems)
+                        const regularNotes = notes
+                          .split("\n")
+                          .filter((line) => !line.startsWith("CHECKBOX:"))
+                          .join("\n")
+                        const checkboxNotes = updatedItems.map((i) => `CHECKBOX:${i.text}`).join("\n")
+                        const combinedNotes = [regularNotes, checkboxNotes].filter(Boolean).join("\n")
+                        setNotes(combinedNotes)
+                      }}
+                      className="text-red-500 hover:text-red-700 p-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const newItem = {
+                      id: Date.now().toString(),
+                      text: "",
+                      checked: false,
+                    }
+                    const updatedItems = [...checklistItems, newItem]
+                    setChecklistItems(updatedItems)
+                  }}
+                  className="w-full p-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors text-xs"
+                >
+                  + Element hinzufügen
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

@@ -4,6 +4,7 @@ import jsPDF from "jspdf"
 import "jspdf-autotable"
 import type { Product, Event, NachbestellungItem, EventDetails } from "@/lib/types"
 import { calculateIngredientsForEvent } from "@/lib/foodtruck-equipment-service"
+import { drawSpecialInfosSection } from "@/lib/pdf-generator-utils" // Import the drawSpecialInfosSection function
 
 // Extend jsPDF type to include autoTable
 declare module "jspdf" {
@@ -310,105 +311,6 @@ export async function generatePdf(
     doc.line(20, pageHeight - 15, pageWidth - 20, pageHeight - 15)
   }
 
-  const drawSpecialInfosSection = (notes: string, currentY: number) => {
-    if (!notes || notes.trim() === "") return currentY
-
-    // Calculate the required height based on content
-    const specialInfosBoxWidth = pageWidth - 40
-    const maxWidth = specialInfosBoxWidth - 10 // Leave some padding
-
-    // Set font for measurement
-    doc.setFont("helvetica", "normal")
-    doc.setFontSize(10)
-
-    // Split notes into lines that fit within the box width
-    const lines = doc.splitTextToSize(notes, maxWidth)
-    const lineHeight = 5 // Increased line height for better readability
-    const minBoxHeight = 20 // Minimum height for the box
-    const padding = 10 // Top and bottom padding inside the box
-
-    // Calculate required height: number of lines * line height + padding
-    const contentHeight = lines.length * lineHeight
-    const specialInfosBoxHeight = Math.max(minBoxHeight, contentHeight + padding)
-
-    // Check if we need a new page for special infos
-    const totalSectionHeight = 25 + specialInfosBoxHeight // Title + box height
-    if (currentY + totalSectionHeight > pageHeight - 60) {
-      doc.addPage()
-      currentPageNumber++
-      drawHeader()
-      drawFooter()
-      doc.setTextColor(0, 0, 0)
-      currentY = 25
-    }
-
-    // Add some space before special infos
-    currentY += 15
-
-    // Special Infos section title
-    doc.setFontSize(12)
-    doc.setFont("helvetica", "bold")
-    doc.text("Special Infos", 20, currentY)
-    doc.line(20, currentY + 2, pageWidth - 20, currentY + 2)
-    currentY += 10
-
-    // Draw special infos box border with calculated height
-    doc.setDrawColor(0, 0, 0)
-    doc.rect(20, currentY, specialInfosBoxWidth, specialInfosBoxHeight)
-
-    // Special Infos text
-    doc.setFont("helvetica", "normal")
-    doc.setFontSize(10)
-    doc.setTextColor(0, 0, 0)
-
-    // Draw the text lines with improved spacing and bounds checking
-    let textY = currentY + 8
-    const maxTextY = currentY + specialInfosBoxHeight - 5 // Leave some bottom margin
-
-    lines.forEach((line: string) => {
-      // Only draw if we have space and the line fits
-      if (textY <= maxTextY) {
-        doc.text(line, 25, textY)
-        textY += lineHeight
-      }
-    })
-
-    currentY += specialInfosBoxHeight + 10
-    return currentY
-  }
-
-  const drawSignatureSection = () => {
-    const signatureY = pageHeight - 50
-    const signatureHeight = 25
-    const signatureWidth = pageWidth - 40
-
-    // Draw signature box
-    doc.setDrawColor(0, 0, 0)
-    doc.rect(20, signatureY, signatureWidth, signatureHeight)
-
-    // Set text properties
-    doc.setFontSize(10)
-    doc.setTextColor(0, 0, 0)
-    doc.setFont("helvetica", "normal")
-
-    // Left side - "Erledigt von:"
-    const leftText = "Erledigt von:"
-    const leftLineStart = 20 + doc.getTextWidth(leftText) + 5
-    const leftLineEnd = pageWidth / 2 - 10
-
-    doc.text(leftText, 25, signatureY + 15)
-    doc.line(leftLineStart, signatureY + 15, leftLineEnd, signatureY + 15)
-
-    // Right side - "Datum & Uhrzeit:"
-    const rightText = "Datum & Uhrzeit:"
-    const rightTextStart = pageWidth / 2 + 10
-    const rightLineStart = rightTextStart + doc.getTextWidth(rightText) + 5
-    const rightLineEnd = pageWidth - 25
-
-    doc.text(rightText, rightTextStart, signatureY + 15)
-    doc.line(rightLineStart, signatureY + 15, rightLineEnd, signatureY + 15)
-  }
-
   // Draw header and footer on first page
   drawHeader()
   drawFooter()
@@ -419,6 +321,11 @@ export async function generatePdf(
   const titleText = `${getTitle()}: ${eventDetails.name}`
   doc.text(titleText, 20, 25)
   doc.line(20, 28, pageWidth - 20, 28)
+
+  let currentY = 35
+  if (eventDetails.notes && eventDetails.notes.trim() !== "") {
+    currentY = drawSpecialInfosSection(doc, eventDetails.notes, currentY)
+  }
 
   // Group products by category - Include ALL categories with selected products
   const productsByCategory: Record<string, { name: string; quantity: number; unit: string }[]> = {}
@@ -456,7 +363,7 @@ export async function generatePdf(
   // Calculate column layout - Use 3 columns for portrait format
   const columnWidth = (pageWidth - 40) / maxColumns
   const xPositions = Array.from({ length: maxColumns }, (_, i) => 20 + i * columnWidth)
-  let yPosition = 35
+  let yPosition = currentY // Use currentY from Special Infos section instead of fixed 35
 
   // Only draw products if there are any
   if (Object.keys(selectedProducts).length > 0) {
@@ -564,7 +471,7 @@ export async function generatePdf(
     doc.setTextColor(0, 0, 0)
   }
 
-  let currentY = 25
+  currentY = 25
 
   // Add ingredients table if available
   if (Object.keys(calculatedIngredients).length > 0) {
@@ -775,11 +682,6 @@ export async function generatePdf(
     currentY = drawIngredientsSection(foodIngredients, "Food")
   }
 
-  // Add Special Infos section if notes exist
-  if (eventDetails.notes && eventDetails.notes.trim() !== "") {
-    currentY = drawSpecialInfosSection(eventDetails.notes, currentY)
-  }
-
   // Generate filename
   let fileName = ""
   if (mode === "packliste") {
@@ -834,9 +736,6 @@ export async function generatePdf(
     keywords: `${getTitle()}, ${eventDetails.type}, ${eventDetails.name}`,
     creator: "I Eat Vienna App",
   })
-
-  // Add signature section to the last page
-  drawSignatureSection()
 
   // Save the PDF
   doc.save(`${fileName}.pdf`)
@@ -1035,6 +934,10 @@ export async function generatePacklistePdf(
 
     // Add header
     yPosition = addHeader(doc, event, yPosition, pageWidth, margin)
+
+    if (event.notes && event.notes.trim() !== "") {
+      yPosition = drawSpecialInfosSection(doc, event.notes, yPosition)
+    }
 
     // Group products by category
     console.log("🗂️ Grouping products by category...")
