@@ -267,14 +267,12 @@ export async function generatePdf(
       }
     }
 
-    // Add FT if exists and not 'none'
     if (eventDetails.ft && eventDetails.ft !== "none") {
-      headerText += ` | FT${eventDetails.ft}`
+      headerText += ` | ${eventDetails.ft}`
     }
 
-    // Add KA if exists and not 'none'
     if (eventDetails.ka && eventDetails.ka !== "none") {
-      headerText += ` | KA ${eventDetails.ka}`
+      headerText += ` | ${eventDetails.ka}`
     }
 
     doc.text(headerText, 20, 12)
@@ -298,14 +296,12 @@ export async function generatePdf(
       }
     }
 
-    // Add FT if exists and not 'none'
     if (eventDetails.ft && eventDetails.ft !== "none") {
-      footerText += ` | FT${eventDetails.ft}`
+      footerText += ` | ${eventDetails.ft}`
     }
 
-    // Add KA if exists and not 'none'
     if (eventDetails.ka && eventDetails.ka !== "none") {
-      footerText += ` | KA ${eventDetails.ka}`
+      footerText += ` | ${eventDetails.ka}`
     }
 
     doc.text(footerText, 20, pageHeight - 10)
