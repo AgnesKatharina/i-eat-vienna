@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   ArrowLeft,
   Search,
@@ -21,7 +20,6 @@ import {
   Wrench,
   List,
   CheckCircle,
-  CheckSquare,
   X,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase-client"
@@ -147,7 +145,7 @@ const formatFoodtrucks = (foodtrucks: string[]): string => {
   return `${foodtrucks.slice(0, -1).join(", ")} & ${foodtrucks[foodtrucks.length - 1]}`
 }
 
-const NotesFieldWithModeToggle = ({
+const NotesFieldWithSplitLayout = ({
   value,
   onChange,
   placeholder = "Zusätzliche Informationen zur Nachbestellung...",
@@ -158,150 +156,154 @@ const NotesFieldWithModeToggle = ({
   placeholder?: string
   maxLength?: number
 }) => {
-  const [mode, setMode] = useState<"text" | "checkbox">("text")
-  const [checkboxItems, setCheckboxItems] = useState<Array<{ id: string; text: string; checked: boolean }>>([])
+  const [checkboxItems, setCheckboxItems] = useState<Array<{ id: string; text: string }>>([])
 
-  // Convert text to checkbox items when switching to checkbox mode
+  // Parse existing value to separate notes and checkboxes
   useEffect(() => {
-    if (mode === "checkbox" && value) {
-      const lines = value.split("\n").filter((line) => line.trim())
-      const items = lines.map((line, index) => ({
+    if (value) {
+      const lines = value.split("\n")
+      const checkboxLines = lines.filter((line) => line.startsWith("CHECKBOX:"))
+      const noteLines = lines.filter((line) => !line.startsWith("CHECKBOX:"))
+
+      const items = checkboxLines.map((line, index) => ({
         id: `item-${index}`,
-        text: line.replace(/^\s*\[([x\s]?)\]\s*/, ""), // Remove existing checkbox syntax
-        checked: line.match(/^\s*\[x\]\s*/) !== null,
+        text: line.replace("CHECKBOX:", "").trim(),
       }))
+
       setCheckboxItems(items)
-    }
-  }, [mode, value])
 
-  // Convert checkbox items back to text when switching to text mode
-  const convertCheckboxesToText = () => {
-    const text = checkboxItems.map((item) => `[${item.checked ? "x" : " "}] ${item.text}`).join("\n")
-    onChange(text)
-  }
-
-  const handleModeChange = (newMode: "text" | "checkbox") => {
-    if (mode === "checkbox" && newMode === "text") {
-      convertCheckboxesToText()
+      // Update the notes part without checkbox items
+      const notesText = noteLines.join("\n").trim()
+      if (notesText !== value) {
+        // Only update if different to avoid infinite loop
+        setTimeout(
+          () =>
+            onChange(
+              notesText + (items.length > 0 ? "\n" + items.map((item) => `CHECKBOX:${item.text}`).join("\n") : ""),
+            ),
+          0,
+        )
+      }
     }
-    setMode(newMode)
+  }, [])
+
+  const handleNotesChange = (notesText: string) => {
+    const checkboxText =
+      checkboxItems.length > 0 ? "\n" + checkboxItems.map((item) => `CHECKBOX:${item.text}`).join("\n") : ""
+    onChange(notesText + checkboxText)
   }
 
   const addCheckboxItem = () => {
     const newItem = {
       id: `item-${Date.now()}`,
       text: "",
-      checked: false,
     }
-    setCheckboxItems([...checkboxItems, newItem])
+    const updatedItems = [...checkboxItems, newItem]
+    setCheckboxItems(updatedItems)
+
+    const lines = value.split("\n")
+    const noteLines = lines.filter((line) => !line.startsWith("CHECKBOX:"))
+    const notesText = noteLines.join("\n").trim()
+    const checkboxText = updatedItems.map((item) => `CHECKBOX:${item.text}`).join("\n")
+    onChange(notesText + (checkboxText ? "\n" + checkboxText : ""))
   }
 
-  const updateCheckboxItem = (id: string, updates: Partial<{ text: string; checked: boolean }>) => {
-    setCheckboxItems((items) => items.map((item) => (item.id === id ? { ...item, ...updates } : item)))
+  const updateCheckboxItem = (id: string, text: string) => {
+    const updatedItems = checkboxItems.map((item) => (item.id === id ? { ...item, text } : item))
+    setCheckboxItems(updatedItems)
+
+    const lines = value.split("\n")
+    const noteLines = lines.filter((line) => !line.startsWith("CHECKBOX:"))
+    const notesText = noteLines.join("\n").trim()
+    const checkboxText = updatedItems
+      .filter((item) => item.text.trim())
+      .map((item) => `CHECKBOX:${item.text}`)
+      .join("\n")
+    onChange(notesText + (checkboxText ? "\n" + checkboxText : ""))
   }
 
   const removeCheckboxItem = (id: string) => {
-    setCheckboxItems((items) => items.filter((item) => item.id !== id))
+    const updatedItems = checkboxItems.filter((item) => item.id !== id)
+    setCheckboxItems(updatedItems)
+
+    const lines = value.split("\n")
+    const noteLines = lines.filter((line) => !line.startsWith("CHECKBOX:"))
+    const notesText = noteLines.join("\n").trim()
+    const checkboxText = updatedItems.map((item) => `CHECKBOX:${item.text}`).join("\n")
+    onChange(notesText + (checkboxText ? "\n" + checkboxText : ""))
   }
 
-  // Update the text value when checkbox items change
-  useEffect(() => {
-    if (mode === "checkbox") {
-      const text = checkboxItems
-        .filter((item) => item.text.trim()) // Only include items with text
-        .map((item) => `[${item.checked ? "x" : " "}] ${item.text}`)
-        .join("\n")
-      onChange(text)
-    }
-  }, [checkboxItems, mode, onChange])
+  const notesText = value
+    .split("\n")
+    .filter((line) => !line.startsWith("CHECKBOX:"))
+    .join("\n")
+    .trim()
 
   return (
     <div className="space-y-3">
-      {/* Mode Toggle */}
-      <div className="flex items-center space-x-2">
-        <Button
-          type="button"
-          variant={mode === "text" ? "default" : "outline"}
-          size="sm"
-          onClick={() => handleModeChange("text")}
-          className="h-8"
-        >
-          <FileText className="h-3 w-3 mr-1" />
-          Text
-        </Button>
-        <Button
-          type="button"
-          variant={mode === "checkbox" ? "default" : "outline"}
-          size="sm"
-          onClick={() => handleModeChange("checkbox")}
-          className="h-8"
-        >
-          <CheckSquare className="h-3 w-3 mr-1" />
-          Checkliste
-        </Button>
-      </div>
-
-      {/* Text Mode */}
-      {mode === "text" && (
-        <Textarea
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="min-h-[80px] resize-none"
-          maxLength={maxLength}
-        />
-      )}
-
-      {/* Checkbox Mode */}
-      {mode === "checkbox" && (
-        <div className="border rounded-lg p-3 bg-gray-50 space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-gray-700">Checkliste:</h4>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addCheckboxItem}
-              className="h-7 text-xs bg-transparent"
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Hinzufügen
-            </Button>
-          </div>
-
+      <div className="flex gap-4">
+        {/* Notes Section - 2/3 width */}
+        <div className="flex-1" style={{ flexBasis: "66.666%" }}>
           <div className="space-y-2">
-            {checkboxItems.map((item) => (
-              <div key={item.id} className="flex items-center space-x-2 group">
-                <Checkbox
-                  checked={item.checked}
-                  onCheckedChange={(checked) => updateCheckboxItem(item.id, { checked: checked as boolean })}
-                />
-                <Input
-                  value={item.text}
-                  onChange={(e) => updateCheckboxItem(item.id, { text: e.target.value })}
-                  placeholder="Checkbox-Element eingeben..."
-                  className={`flex-1 h-8 text-sm ${item.checked ? "line-through text-gray-500" : ""}`}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeCheckboxItem(item.id)}
-                  className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
-
-            {checkboxItems.length === 0 && (
-              <p className="text-sm text-gray-500 text-center py-4">
-                Klicken Sie auf "Hinzufügen", um Checkbox-Elemente zu erstellen
-              </p>
-            )}
+            <label className="text-sm font-medium text-gray-700">Notizen</label>
+            <Textarea
+              placeholder={placeholder}
+              value={notesText}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              className="min-h-[120px] resize-none"
+              maxLength={maxLength}
+            />
           </div>
         </div>
-      )}
+
+        {/* Checkboxes Section - 1/3 width */}
+        <div className="flex-1" style={{ flexBasis: "33.333%" }}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700">Checkliste</label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addCheckboxItem}
+                className="h-7 text-xs bg-transparent"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Hinzufügen
+              </Button>
+            </div>
+
+            <div className="border rounded-lg p-3 bg-gray-50 min-h-[120px] space-y-2">
+              {checkboxItems.map((item) => (
+                <div key={item.id} className="flex items-center space-x-2 group">
+                  <div className="w-4 h-4 border border-gray-400 rounded-sm bg-white flex-shrink-0" />
+                  <Input
+                    value={item.text}
+                    onChange={(e) => updateCheckboxItem(item.id, e.target.value)}
+                    placeholder="Element eingeben..."
+                    className="flex-1 h-8 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeCheckboxItem(item.id)}
+                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+
+              {checkboxItems.length === 0 && (
+                <p className="text-sm text-gray-500 text-center py-8">
+                  Klicken Sie auf "Hinzufügen", um Checkbox-Elemente zu erstellen
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <p className="text-xs text-gray-500">
         {value.length}/{maxLength} Zeichen
@@ -802,7 +804,7 @@ export default function NachbestellungDetailPage({ eventId }: { eventId: string 
             Notizen (optional)
           </label>
         </div>
-        <NotesFieldWithModeToggle
+        <NotesFieldWithSplitLayout
           value={notes}
           onChange={setNotes}
           placeholder="Zusätzliche Informationen zur Nachbestellung..."

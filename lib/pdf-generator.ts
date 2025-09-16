@@ -243,8 +243,10 @@ export async function generatePdf(
         return "Einkaufsliste"
       case "bestellung":
         return "Bestellung"
+      case "nachbestellung":
+        return "Nachbestellung"
       default:
-        return "Packliste"
+        return "Liste"
     }
   }
 
@@ -267,12 +269,12 @@ export async function generatePdf(
 
     // Add FT if exists and not 'none'
     if (eventDetails.ft && eventDetails.ft !== "none") {
-      headerText += ` | ${eventDetails.ft}`
+      headerText += ` | FT${eventDetails.ft}`
     }
 
     // Add KA if exists and not 'none'
     if (eventDetails.ka && eventDetails.ka !== "none") {
-      headerText += ` | ${eventDetails.ka}`
+      headerText += ` | KA ${eventDetails.ka}`
     }
 
     doc.text(headerText, 20, 12)
@@ -298,12 +300,12 @@ export async function generatePdf(
 
     // Add FT if exists and not 'none'
     if (eventDetails.ft && eventDetails.ft !== "none") {
-      footerText += ` | ${eventDetails.ft}`
+      footerText += ` | FT${eventDetails.ft}`
     }
 
     // Add KA if exists and not 'none'
     if (eventDetails.ka && eventDetails.ka !== "none") {
-      footerText += ` | ${eventDetails.ka}`
+      footerText += ` | KA ${eventDetails.ka}`
     }
 
     doc.text(footerText, 20, pageHeight - 10)
@@ -682,6 +684,50 @@ export async function generatePdf(
     currentY = drawIngredientsSection(foodIngredients, "Food")
   }
 
+  // Check if we need a new page for signature
+  if (currentY > pageHeight - 80) {
+    doc.addPage()
+    currentY = 20
+  }
+
+  console.log("✍️ Adding signature section at yPosition:", currentY)
+
+  // Draw the signature box border - make it flatter and ensure it fits
+  const signatureBoxHeight = 25
+  const signatureBoxWidth = 170 // Fixed safe width
+  const signatureBoxX = 20
+  doc.setLineWidth(1)
+  doc.rect(signatureBoxX, currentY, signatureBoxWidth, signatureBoxHeight)
+
+  // Add signature fields side by side with underlines
+  doc.setFontSize(12)
+  doc.setFont("helvetica", "normal")
+
+  // Left field: Erledigt von - calculate exact text width
+  const leftFieldX = signatureBoxX + 5
+  const fieldY = currentY + 15
+  const leftText = "Erledigt von:"
+  doc.text(leftText, leftFieldX, fieldY)
+
+  const leftTextWidth = doc.getTextWidth(leftText)
+  doc.setLineWidth(0.3) // Very thin line
+  doc.setDrawColor(0, 0, 0) // Black color
+  const leftUnderlineStart = leftFieldX + leftTextWidth // Start immediately after text
+  const leftUnderlineEnd = leftFieldX + 80
+  doc.line(leftUnderlineStart, fieldY, leftUnderlineEnd, fieldY) // Same Y position as text baseline
+
+  // Right field: Datum & Uhrzeit - calculate exact text width
+  const rightFieldX = leftFieldX + 85
+  const rightText = "Datum & Uhrzeit:"
+  doc.text(rightText, rightFieldX, fieldY)
+
+  const rightTextWidth = doc.getTextWidth(rightText)
+  const rightUnderlineStart = rightFieldX + rightTextWidth // Start immediately after text
+  const rightUnderlineEnd = signatureBoxX + signatureBoxWidth - 5
+  doc.line(rightUnderlineStart, fieldY, rightUnderlineEnd, fieldY) // Same Y position as text baseline
+
+  console.log("[v0] Signature section added successfully")
+
   // Generate filename
   let fileName = ""
   if (mode === "packliste") {
@@ -737,6 +783,8 @@ export async function generatePdf(
     creator: "I Eat Vienna App",
   })
 
+  console.log("[v0] About to add signature section")
+
   // Save the PDF
   doc.save(`${fileName}.pdf`)
 }
@@ -783,27 +831,28 @@ export function generateSimplePacklistePDF(
     // Category header
     doc.setFontSize(12)
     doc.setFont("helvetica", "bold")
-    doc.text(category, 20, yPosition)
+    const categoryText = truncateText(doc, category, 170 - 5)
+    doc.text(categoryText, 20, yPosition)
     yPosition += 10
+
+    // Draw border around category
+    doc.setLineWidth(0.3)
+    doc.rect(20, yPosition - 10, 170, categoryProducts.length * 6 + 5)
 
     // Products
     doc.setFontSize(10)
     doc.setFont("helvetica", "normal")
 
     categoryProducts.forEach((product) => {
+      if (yPosition + 6 > 270) return // Stop if we run out of space
+
       // Checkbox
       doc.rect(25, yPosition - 3, 3, 3)
 
-      // Product text
-      const productText = `${product.quantity}x ${product.name} (${product.unit})`
-      doc.text(productText, 35, yPosition)
-      yPosition += 8
-
-      // Check for page break
-      if (yPosition > 270) {
-        doc.addPage()
-        yPosition = 20
-      }
+      // Product name and quantity
+      const productText = `${truncateText(doc, product.name, 170 * 0.6)} - ${product.quantity} ${product.unit}`
+      doc.text(productText, 35, yPosition + 2.5)
+      yPosition += 6
     })
 
     yPosition += 5 // Space between categories
@@ -955,23 +1004,40 @@ export async function generatePacklistePdf(
       console.log("⚠️ No categories with products found")
       doc.text("Keine Produkte ausgewählt", margin, yPosition)
     } else {
-      // Calculate layout for categories
-      const totalCategories = categoriesWithProducts.length
-      const rows = Math.ceil(totalCategories / maxColumns)
-      const columnWidth = (pageWidth - 2 * margin) / maxColumns
-      const rowHeight = (pageHeight - yPosition - margin) / rows
+      const columnWidth = (pageWidth - 2 * margin - 20) / maxColumns // Add spacing between columns
+      const availableHeight = pageHeight - yPosition - 80 // Reserve space for signature
 
-      console.log("📐 Layout:", { totalCategories, rows, maxColumns, columnWidth, rowHeight })
+      let currentColumn = 0
+      let currentColumnY = yPosition
+      let currentX = margin
 
-      // Draw categories in grid layout
+      console.log("📐 Column-first layout:", { columnWidth, availableHeight, maxColumns })
+
       categoriesWithProducts.forEach(([category, products], index) => {
-        const row = Math.floor(index / maxColumns)
-        const col = index % maxColumns
-        const x = margin + col * columnWidth
-        const y = yPosition + row * rowHeight
+        // Calculate height needed for this category
+        const categoryHeight = 15 + products.length * 6 + 10 // Header + products + padding
 
-        console.log(`📝 Drawing category "${category}" at position (${x}, ${y})`)
-        drawCategoryColumn(doc, category, products, x, y, columnWidth - 10, rowHeight - 20)
+        // Check if category fits in current column
+        if (currentColumnY + categoryHeight > yPosition + availableHeight) {
+          // Move to next column
+          currentColumn++
+          currentColumnY = yPosition
+          currentX = margin + currentColumn * (columnWidth + 10)
+
+          // If we've filled all columns, start a new page
+          if (currentColumn >= maxColumns) {
+            doc.addPage()
+            yPosition = margin
+            currentColumn = 0
+            currentColumnY = yPosition
+            currentX = margin
+          }
+        }
+
+        console.log(`📝 Drawing category "${category}" in column ${currentColumn} at (${currentX}, ${currentColumnY})`)
+        drawCategoryColumn(doc, category, products, currentX, currentColumnY, columnWidth, categoryHeight)
+
+        currentColumnY += categoryHeight + 5 // Add spacing between categories
       })
     }
 
@@ -979,7 +1045,7 @@ export async function generatePacklistePdf(
     doc.addPage()
     yPosition = margin
 
-    console.log("-yyyy Adding ingredients section...")
+    console.log("🥕 Adding ingredients section...")
     try {
       const ingredients = await calculateIngredientsForEvent(event.id!)
       console.log("✅ Ingredients calculated:", ingredients.length)
@@ -1000,10 +1066,54 @@ export async function generatePacklistePdf(
       doc.text("Zutaten", margin, yPosition)
       yPosition += 15
       doc.setFontSize(12)
-      doc.text("Fehler beim Berechnen der Zutaten", margin, yPosition)
+      doc.text("Fehler beim Laden der Zutaten", margin, yPosition)
     }
 
-    // Save the PDF
+    // Check if we need a new page for signature
+    if (yPosition > pageHeight - 80) {
+      doc.addPage()
+      yPosition = 20
+    }
+
+    console.log("✍️ Adding signature section at yPosition:", yPosition)
+
+    // Draw the signature box border - make it flatter and ensure it fits
+    const signatureBoxHeight = 25
+    const signatureBoxWidth = 170 // Fixed safe width
+    const signatureBoxX = margin
+    doc.setLineWidth(1)
+    doc.rect(signatureBoxX, yPosition, signatureBoxWidth, signatureBoxHeight)
+
+    // Add signature fields side by side with underlines
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "normal")
+
+    // Left field: Erledigt von - calculate exact text width
+    const leftFieldX = signatureBoxX + 5
+    const fieldY = yPosition + 15
+    const leftText = "Erledigt von:"
+    doc.text(leftText, leftFieldX, fieldY)
+
+    const leftTextWidth = doc.getTextWidth(leftText)
+    doc.setLineWidth(0.3) // Very thin line
+    doc.setDrawColor(0, 0, 0) // Black color
+    const leftUnderlineStart = leftFieldX + leftTextWidth // Start immediately after text
+    const leftUnderlineEnd = leftFieldX + 80
+    doc.line(leftUnderlineStart, fieldY, leftUnderlineEnd, fieldY) // Same Y position as text baseline
+
+    // Right field: Datum & Uhrzeit - calculate exact text width
+    const rightFieldX = leftFieldX + 85
+    const rightText = "Datum & Uhrzeit:"
+    doc.text(rightText, rightFieldX, fieldY)
+
+    const rightTextWidth = doc.getTextWidth(rightText)
+    const rightUnderlineStart = rightFieldX + rightTextWidth // Start immediately after text
+    const rightUnderlineEnd = signatureBoxX + signatureBoxWidth - 5
+    doc.line(rightUnderlineStart, fieldY, rightUnderlineEnd, fieldY) // Same Y position as text baseline
+
+    console.log("[v0] Signature section added successfully")
+
+    // Save PDF
     const filename = `Packliste_${event.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`
     console.log("💾 Saving PDF as:", filename)
     doc.save(filename)
@@ -1385,6 +1495,51 @@ export async function generateNachbestellungPdf(
     } else {
       doc.text("Keine Artikel in dieser Nachbestellung", margin, yPosition)
     }
+
+    // Check if we need a new page for signature
+    const pageHeight = doc.internal.pageSize.getHeight()
+    if (yPosition > pageHeight - 80) {
+      doc.addPage()
+      yPosition = 20
+    }
+
+    console.log("✍️ Adding signature section at yPosition:", yPosition)
+
+    // Draw the signature box border - make it flatter and ensure it fits
+    const signatureBoxHeight = 25
+    const signatureBoxWidth = 170 // Fixed safe width
+    const signatureBoxX = margin
+    doc.setLineWidth(1)
+    doc.rect(signatureBoxX, yPosition, signatureBoxWidth, signatureBoxHeight)
+
+    // Add signature fields side by side with underlines
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "normal")
+
+    // Left field: Erledigt von - calculate exact text width
+    const leftFieldX = signatureBoxX + 5
+    const fieldY = yPosition + 15
+    const leftText = "Erledigt von:"
+    doc.text(leftText, leftFieldX, fieldY)
+
+    const leftTextWidth = doc.getTextWidth(leftText)
+    doc.setLineWidth(0.3) // Very thin line
+    doc.setDrawColor(0, 0, 0) // Black color
+    const leftUnderlineStart = leftFieldX + leftTextWidth // Start immediately after text
+    const leftUnderlineEnd = leftFieldX + 80
+    doc.line(leftUnderlineStart, fieldY, leftUnderlineEnd, fieldY) // Same Y position as text baseline
+
+    // Right field: Datum & Uhrzeit - calculate exact text width
+    const rightFieldX = leftFieldX + 85
+    const rightText = "Datum & Uhrzeit:"
+    doc.text(rightText, rightFieldX, fieldY)
+
+    const rightTextWidth = doc.getTextWidth(rightText)
+    const rightUnderlineStart = rightFieldX + rightTextWidth // Start immediately after text
+    const rightUnderlineEnd = signatureBoxX + signatureBoxWidth - 5
+    doc.line(rightUnderlineStart, fieldY, rightUnderlineEnd, fieldY) // Same Y position as text baseline
+
+    console.log("[v0] Signature section added successfully")
 
     // Save PDF
     const filename = `Nachbestellung_${nachbestellung.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`
