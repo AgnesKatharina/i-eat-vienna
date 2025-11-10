@@ -473,6 +473,15 @@ export async function generatePdf(
 
   // Add ingredients table if available
   if (Object.keys(calculatedIngredients).length > 0) {
+    if (currentY > pageHeight - 100) {
+      doc.addPage()
+      currentPageNumber++
+      drawHeader()
+      drawFooter()
+      doc.setTextColor(0, 0, 0)
+      currentY = 25
+    }
+
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
     doc.text("Zutaten", 20, currentY)
@@ -498,6 +507,15 @@ export async function generatePdf(
     // Function to draw ingredients section
     const drawIngredientsSection = (ingredients: Record<string, CalculatedIngredient>, title: string) => {
       if (Object.keys(ingredients).length === 0) return currentY
+
+      if (currentY > pageHeight - 50) {
+        doc.addPage()
+        currentPageNumber++
+        drawHeader()
+        drawFooter()
+        doc.setTextColor(0, 0, 0)
+        currentY = 25
+      }
 
       // Section title
       doc.setFontSize(12)
@@ -562,6 +580,12 @@ export async function generatePdf(
             drawFooter()
             doc.setTextColor(0, 0, 0)
             currentY = 25
+
+            doc.setFontSize(12)
+            doc.setFont("helvetica", "bold")
+            doc.text(`${title} (Fortsetzung)`, 20, currentY)
+            doc.line(20, currentY + 2, pageWidth - 20, currentY + 2)
+            currentY += 10
 
             // Only redraw table header on new page
             currentX = startX
@@ -681,9 +705,13 @@ export async function generatePdf(
   }
 
   // Check if we need a new page for signature
-  if (currentY > pageHeight - 80) {
+  if (currentY > pageHeight - 50) {
     doc.addPage()
-    currentY = 20
+    currentPageNumber++
+    drawHeader()
+    drawFooter()
+    doc.setTextColor(0, 0, 0)
+    currentY = 25
   }
 
   console.log("✍️ Adding signature section at yPosition:", currentY)
