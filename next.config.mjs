@@ -9,6 +9,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  output: 'standalone',
+  outputFileTracing: false,
   
   webpack: (config, { isServer }) => {
     if (!isServer) {
@@ -17,6 +19,10 @@ const nextConfig = {
         fs: false,
         canvas: false,
       }
+    }
+    
+    if (isServer) {
+      config.externals = [...(config.externals || []), 'jspdf', 'jspdf-autotable']
     }
     
     return config
