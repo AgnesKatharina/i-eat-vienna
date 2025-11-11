@@ -9,6 +9,14 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    outputFileTracingIgnores: [
+      '**/node_modules/jspdf/**',
+      '**/node_modules/jspdf-autotable/**',
+      '**/node_modules/canvas/**',
+      '**/node_modules/@types/jspdf/**',
+    ],
+  },
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

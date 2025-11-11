@@ -1,0 +1,6 @@
+# Exclude jspdf and related packages from file tracing
+node_modules/jspdf/**
+node_modules/jspdf-autotable/**
+node_modules/canvas/**
+node_modules/pdfkit/**
+node_modules/@types/jspdf/**
