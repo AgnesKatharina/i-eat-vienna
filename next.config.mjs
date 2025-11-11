@@ -9,8 +9,6 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  output: 'standalone',
-  outputFileTracing: false,
   
   webpack: (config, { isServer }) => {
     if (!isServer) {
