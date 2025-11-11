@@ -10,12 +10,16 @@ const nextConfig = {
     unoptimized: true,
   },
   experimental: {
-    outputFileTracingIgnores: [
-      '**/node_modules/jspdf/**',
-      '**/node_modules/jspdf-autotable/**',
-      '**/node_modules/canvas/**',
-      '**/node_modules/@types/jspdf/**',
-    ],
+    outputFileTracingExcludes: {
+      '*': [
+        'node_modules/jspdf/**/*',
+        'node_modules/jspdf-autotable/**/*',
+        'node_modules/canvas/**/*',
+        'node_modules/@types/jspdf/**/*',
+        'node_modules/dompurify/**/*',
+        'node_modules/html2canvas/**/*',
+      ],
+    },
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
